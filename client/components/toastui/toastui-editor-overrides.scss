@@ -222,6 +222,31 @@
   white-space: nowrap;
 }
 
+// Mermaid diagrams
+.toastui-editor-contents .flatnotes-mermaid-wrapper {
+  margin: 1rem 0;
+  padding: 1rem;
+  overflow-x: auto;
+  border: 1px solid rgb(var(--theme-border));
+  border-radius: 6px;
+  background-color: rgb(var(--theme-background-elevated));
+}
+
+.toastui-editor-contents .flatnotes-mermaid-diagram {
+  min-width: min-content;
+}
+
+.toastui-editor-contents .flatnotes-mermaid-diagram svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.toastui-editor-contents .flatnotes-mermaid-diagram text {
+  font-family: "Poppins", sans-serif !important;
+}
+
 @media print {
   .flatnotes-code-copy-button {
     display: none;

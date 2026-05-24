@@ -6,6 +6,9 @@ const codeCopyButtonClass = "flatnotes-code-copy-button";
 const copiedClass = "flatnotes-code-copy-button-copied";
 const failedClass = "flatnotes-code-copy-button-failed";
 const inlineLatexClass = "flatnotes-inline-latex";
+const mermaidLanguage = "mermaid";
+const mermaidWrapperClass = "flatnotes-mermaid-wrapper";
+const mermaidDiagramClass = "flatnotes-mermaid-diagram";
 const resetDelayMs = 1600;
 const maxInlineLatexLength = 500;
 const ignoredLatexSelector = [
@@ -68,6 +71,9 @@ const latexRenderOptions = {
   throwOnError: true,
   trust: false,
 };
+
+let mermaidInstance;
+let mermaidRenderCounter = 0;
 
 function createIcon(path) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -345,7 +351,166 @@ export function enhanceInlineLatex(rootElement) {
   textNodes.forEach(replaceTextNodeWithInlineLatex);
 }
 
-export function enhanceRenderedMarkdown(rootElement) {
+function getThemeColor(name, fallback) {
+  const value = getComputedStyle(document.body).getPropertyValue(name).trim();
+
+  return value ? `rgb(${value})` : fallback;
+}
+
+function getMermaidThemeVariables() {
+  const background = getThemeColor("--theme-background", "#ffffff");
+  const elevated = getThemeColor("--theme-background-elevated", "#f3f4f5");
+  const text = getThemeColor("--theme-text", "#2c3139");
+  const muted = getThemeColor("--theme-text-muted", "#8891a1");
+  const border = getThemeColor("--theme-border", "#eceef0");
+  const brand = getThemeColor("--theme-brand", "#f8a66b");
+
+  return {
+    background,
+    clusterBkg: background,
+    clusterBorder: border,
+    fontFamily: "Poppins, sans-serif",
+    lineColor: muted,
+    mainBkg: elevated,
+    noteBkg: elevated,
+    noteTextColor: text,
+    primaryBorderColor: border,
+    primaryColor: elevated,
+    primaryTextColor: text,
+    secondaryColor: background,
+    tertiaryColor: brand,
+    textColor: text,
+  };
+}
+
+async function getMermaidInstance() {
+  if (!mermaidInstance) {
+    const mermaidModule = await import("mermaid");
+    mermaidInstance = mermaidModule.default;
+  }
+
+  mermaidInstance.initialize({
+    flowchart: {
+      htmlLabels: false,
+      useMaxWidth: true,
+    },
+    securityLevel: "strict",
+    sequence: {
+      useMaxWidth: true,
+    },
+    startOnLoad: false,
+    suppressErrorRendering: true,
+    theme: "base",
+    themeVariables: getMermaidThemeVariables(),
+  });
+
+  return mermaidInstance;
+}
+
+function getCodeLanguage(preElement) {
+  const codeElement = preElement.querySelector("code");
+  const directLanguage = codeElement?.dataset.language;
+
+  if (directLanguage) {
+    return directLanguage.trim().toLowerCase();
+  }
+
+  const classNames = [
+    ...preElement.classList,
+    ...(codeElement ? [...codeElement.classList] : []),
+  ];
+  const languageClass = classNames.find((className) =>
+    /^(lang|language)-/i.test(className),
+  );
+
+  return languageClass
+    ? languageClass
+        .replace(/^(lang|language)-/i, "")
+        .trim()
+        .toLowerCase()
+    : "";
+}
+
+function isMermaidCodeBlock(preElement) {
+  return (
+    !preElement.closest(`.${mermaidWrapperClass}`) &&
+    getCodeLanguage(preElement) === mermaidLanguage
+  );
+}
+
+function getMermaidSource(preElement) {
+  const codeElement = preElement.querySelector("code");
+  return (
+    codeElement ? codeElement.textContent : preElement.textContent
+  ).trim();
+}
+
+async function renderMermaidBlock(preElement, mermaid) {
+  const mermaidSource = getMermaidSource(preElement);
+  if (!mermaidSource) {
+    return;
+  }
+
+  const diagramId = `flatnotes-mermaid-${Date.now()}-${mermaidRenderCounter}`;
+  mermaidRenderCounter += 1;
+
+  let renderedDiagram;
+  try {
+    renderedDiagram = await mermaid.render(diagramId, mermaidSource);
+  } catch {
+    return;
+  }
+
+  const svg =
+    typeof renderedDiagram === "string" ? renderedDiagram : renderedDiagram.svg;
+  if (!svg) {
+    return;
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = mermaidWrapperClass;
+
+  const diagram = document.createElement("div");
+  diagram.className = mermaidDiagramClass;
+  diagram.setAttribute("data-mermaid-source", mermaidSource);
+  diagram.innerHTML = svg;
+
+  wrapper.append(diagram);
+  preElement.replaceWith(wrapper);
+  renderedDiagram.bindFunctions?.(diagram);
+}
+
+export async function enhanceMermaidDiagrams(rootElement) {
+  if (!rootElement) {
+    return;
+  }
+
+  const contentRoot = rootElement.querySelector(".toastui-editor-contents");
+  if (!contentRoot) {
+    return;
+  }
+
+  const mermaidBlocks = [...contentRoot.querySelectorAll("pre")].filter(
+    isMermaidCodeBlock,
+  );
+  if (mermaidBlocks.length === 0) {
+    return;
+  }
+
+  let mermaid;
+  try {
+    mermaid = await getMermaidInstance();
+  } catch {
+    return;
+  }
+
+  for (const preElement of mermaidBlocks) {
+    await renderMermaidBlock(preElement, mermaid);
+  }
+}
+
+export async function enhanceRenderedMarkdown(rootElement) {
   enhanceInlineLatex(rootElement);
+  await enhanceMermaidDiagrams(rootElement);
   enhanceCodeBlocks(rootElement);
 }

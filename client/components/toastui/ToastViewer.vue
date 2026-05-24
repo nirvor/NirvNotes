@@ -16,14 +16,14 @@ const props = defineProps({
 
 const viewerElement = ref();
 
-onMounted(() => {
+onMounted(async () => {
   new Viewer({
     ...baseOptions,
     extendedAutolinks,
     el: viewerElement.value,
     initialValue: props.initialValue,
   });
-  enhanceRenderedMarkdown(viewerElement.value);
+  await enhanceRenderedMarkdown(viewerElement.value);
 });
 </script>
 
