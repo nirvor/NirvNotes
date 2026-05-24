@@ -11,6 +11,7 @@
       :class="{ 'print:hidden': route.name == 'note' }"
       @toggleSearchModal="toggleSearchModal"
     />
+    <NoteTabs v-if="showNavBar" />
     <RouterView />
   </LoadingIndicator>
 </template>
@@ -27,6 +28,7 @@ import PrimeToast from "./components/PrimeToast.vue";
 import { useGlobalStore } from "./globalStore.js";
 import { loadTheme } from "./helpers.js";
 import NavBar from "./partials/NavBar.vue";
+import NoteTabs from "./partials/NoteTabs.vue";
 import SearchModal from "./partials/SearchModal.vue";
 import LoadingIndicator from "./components/LoadingIndicator.vue";
 import router from "./router.js";
