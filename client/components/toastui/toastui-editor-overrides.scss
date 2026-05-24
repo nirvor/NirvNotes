@@ -128,18 +128,31 @@
 
 // Task list checkboxes
 .toastui-editor-contents li.task-list-item {
+  display: flex;
+  align-items: flex-start;
   pointer-events: auto;
+}
+
+.toastui-editor-contents li.task-list-item::before {
+  display: none;
+  content: none;
 }
 
 .toastui-editor-contents
   li.task-list-item
   input[type="checkbox"].flatnotes-task-checkbox {
+  flex: 0 0 auto;
   width: 1rem;
   height: 1rem;
+  margin-top: 0.35rem;
   margin-right: 0.35rem;
   cursor: pointer;
   accent-color: rgb(var(--theme-brand));
   touch-action: manipulation;
+}
+
+.toastui-editor-contents li.task-list-item > p {
+  margin-bottom: 0.45rem;
 }
 
 .toastui-editor-contents

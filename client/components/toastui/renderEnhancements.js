@@ -242,16 +242,35 @@ function decorateTaskCheckbox(checkbox, index, rootElement, taskListOptions) {
   checkbox.addEventListener("change", checkbox.flatnotesTaskChangeHandler);
 }
 
+function ensureTaskCheckbox(taskItem) {
+  const existingCheckbox = taskItem.querySelector(
+    `:scope > input[type='checkbox'].${taskCheckboxClass}`,
+  );
+  if (existingCheckbox) {
+    return existingCheckbox;
+  }
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked =
+    taskItem.hasAttribute("data-task-checked") ||
+    taskItem.classList.contains("checked");
+
+  taskItem.insertBefore(checkbox, taskItem.firstChild);
+  return checkbox;
+}
+
 export function enhanceTaskListCheckboxes(rootElement, taskListOptions = {}) {
   if (!rootElement) {
     return;
   }
 
-  const taskCheckboxes = rootElement.querySelectorAll(
-    ".toastui-editor-contents li.task-list-item input[type='checkbox']",
+  const taskItems = rootElement.querySelectorAll(
+    ".toastui-editor-contents li.task-list-item",
   );
 
-  taskCheckboxes.forEach((checkbox, index) => {
+  taskItems.forEach((taskItem, index) => {
+    const checkbox = ensureTaskCheckbox(taskItem);
     decorateTaskCheckbox(checkbox, index, rootElement, taskListOptions);
   });
 }
