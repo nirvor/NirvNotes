@@ -1,7 +1,6 @@
 <template>
   <div class="flex h-full justify-center">
     <div class="flex max-w-[500px] flex-1 flex-col items-center pt-[25vh]">
-      <Logo class="mb-5" />
       <SearchInput class="mb-5 shadow-[0_0_20px] shadow-theme-shadow" />
       <LoadingIndicator
         ref="loadingIndicator"
@@ -47,7 +46,6 @@ import { RouterLink } from "vue-router";
 import { apiErrorHandler, getNotes } from "../api.js";
 import CustomButton from "../components/CustomButton.vue";
 import LoadingIndicator from "../components/LoadingIndicator.vue";
-import Logo from "../components/Logo.vue";
 import { searchSortOptions } from "../constants.js";
 import { useGlobalStore } from "../globalStore.js";
 import SearchInput from "../partials/SearchInput.vue";

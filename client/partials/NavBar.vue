@@ -1,8 +1,5 @@
 <template>
-  <nav class="mb-2 flex justify-between align-top md:mb-12">
-    <RouterLink :to="{ name: 'home' }" v-if="!hideLogo">
-      <Logo responsive></Logo>
-    </RouterLink>
+  <nav class="mb-4 flex justify-end align-top md:mb-6">
     <div class="flex grow items-start justify-end">
       <!-- New Note -->
       <RouterLink v-if="showNewButton" :to="{ name: 'new' }">
@@ -33,7 +30,6 @@ import { computed, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 
 import CustomButton from "../components/CustomButton.vue";
-import Logo from "../components/Logo.vue";
 import PrimeMenu from "../components/PrimeMenu.vue";
 import { authTypes, params, searchSortOptions } from "../constants.js";
 import { useGlobalStore } from "../globalStore.js";
@@ -43,10 +39,6 @@ import { clearStoredToken } from "../tokenStorage.js";
 const globalStore = useGlobalStore();
 const menu = ref();
 const router = useRouter();
-
-defineProps({
-  hideLogo: Boolean,
-});
 
 const emit = defineEmits(["toggleSearchModal"]);
 

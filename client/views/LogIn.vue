@@ -1,6 +1,5 @@
 <template>
   <div class="flex h-full flex-col items-center justify-center">
-    <Logo class="mb-5" />
     <form @submit.prevent="logIn" class="flex max-w-80 flex-col items-center">
       <TextInput
         v-model="username"
@@ -50,7 +49,6 @@ import { useRouter } from "vue-router";
 
 import { apiErrorHandler, getToken } from "../api.js";
 import CustomButton from "../components/CustomButton.vue";
-import Logo from "../components/Logo.vue";
 import TextInput from "../components/TextInput.vue";
 import { authTypes } from "../constants.js";
 import { useGlobalStore } from "../globalStore.js";
