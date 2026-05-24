@@ -127,6 +127,71 @@
 }
 
 // Code Block
+.toastui-editor-contents .flatnotes-code-block-wrapper {
+  position: relative;
+  margin: 1rem 0;
+}
+
+.toastui-editor-contents .flatnotes-code-block-wrapper pre {
+  margin: 0;
+  padding-right: 3.25rem;
+}
+
+.flatnotes-code-copy-button {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(var(--theme-border));
+  border-radius: 6px;
+  color: rgb(var(--theme-text-muted));
+  background-color: rgba(var(--theme-background), 0.9);
+  opacity: 0.74;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease,
+    opacity 120ms ease;
+}
+
+.flatnotes-code-copy-button svg {
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
+}
+
+.flatnotes-code-copy-button:hover,
+.flatnotes-code-copy-button:focus-visible {
+  color: rgb(var(--theme-text));
+  background-color: rgb(var(--theme-background-elevated));
+  opacity: 1;
+}
+
+.flatnotes-code-copy-button:focus-visible {
+  outline: 2px solid rgb(var(--theme-brand));
+  outline-offset: 2px;
+}
+
+.flatnotes-code-copy-button:disabled {
+  cursor: default;
+}
+
+.flatnotes-code-copy-button-copied {
+  color: rgb(var(--theme-brand));
+  border-color: rgb(var(--theme-brand));
+  opacity: 1;
+}
+
+.flatnotes-code-copy-button-failed {
+  color: #ef4444;
+  border-color: #ef4444;
+  opacity: 1;
+}
+
 .toastui-editor-contents pre,
 .toastui-editor-md-code-block-line-background {
   background-color: rgb(var(--theme-background-elevated));
@@ -135,6 +200,16 @@
 .dark .toastui-editor-contents pre,
 .dark .toastui-editor-md-code-block-line-background {
   background-color: rgb(var(--theme-background-elevated));
+}
+
+.dark .flatnotes-code-copy-button {
+  background-color: rgba(var(--theme-background), 0.88);
+}
+
+@media print {
+  .flatnotes-code-copy-button {
+    display: none;
+  }
 }
 
 .token.operator,

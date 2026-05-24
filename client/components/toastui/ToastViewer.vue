@@ -8,6 +8,7 @@ import { onMounted, ref } from "vue";
 
 import baseOptions from "./baseOptions.js";
 import extendedAutolinks from "./extendedAutolinks.js";
+import { enhanceCodeBlocks } from "./renderEnhancements.js";
 
 const props = defineProps({
   initialValue: String,
@@ -22,6 +23,7 @@ onMounted(() => {
     el: viewerElement.value,
     initialValue: props.initialValue,
   });
+  enhanceCodeBlocks(viewerElement.value);
 });
 </script>
 

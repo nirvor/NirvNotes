@@ -4,6 +4,7 @@ import colors from "tailwindcss/colors";
 
 export default {
   content: ["client/**/*.{html,js,vue}"],
+  blocklist: ["[-:=]"],
   darkMode: "selector",
   theme: {
     fontFamily: {
