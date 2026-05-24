@@ -126,6 +126,36 @@
   color: rgb(var(--theme-text));
 }
 
+// Task list checkboxes
+.toastui-editor-contents li.task-list-item {
+  pointer-events: auto;
+}
+
+.toastui-editor-contents
+  li.task-list-item
+  input[type="checkbox"].flatnotes-task-checkbox {
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0.35rem;
+  cursor: pointer;
+  accent-color: rgb(var(--theme-brand));
+  touch-action: manipulation;
+}
+
+.toastui-editor-contents
+  li.task-list-item
+  input[type="checkbox"].flatnotes-task-checkbox:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.toastui-editor-contents
+  li.task-list-item
+  input[type="checkbox"].flatnotes-task-checkbox:focus-visible {
+  outline: 2px solid rgb(var(--theme-brand));
+  outline-offset: 2px;
+}
+
 // Code Block
 .toastui-editor-contents .flatnotes-code-block-wrapper {
   position: relative;

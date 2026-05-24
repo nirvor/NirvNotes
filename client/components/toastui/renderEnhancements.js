@@ -9,6 +9,8 @@ const inlineLatexClass = "flatnotes-inline-latex";
 const mermaidLanguage = "mermaid";
 const mermaidWrapperClass = "flatnotes-mermaid-wrapper";
 const mermaidDiagramClass = "flatnotes-mermaid-diagram";
+const taskCheckboxClass = "flatnotes-task-checkbox";
+const taskCheckboxSavingClass = "flatnotes-task-checkbox-saving";
 const resetDelayMs = 1600;
 const maxInlineLatexLength = 500;
 const ignoredLatexSelector = [
@@ -194,6 +196,64 @@ export function enhanceCodeBlocks(rootElement) {
   rootElement
     .querySelectorAll(".toastui-editor-contents pre")
     .forEach(decorateCodeBlock);
+}
+
+function setTaskCheckboxesBusy(rootElement, isBusy, taskListOptions) {
+  rootElement.querySelectorAll(`.${taskCheckboxClass}`).forEach((checkbox) => {
+    checkbox.disabled = isBusy || !!taskListOptions.disabled;
+    checkbox.classList.toggle(taskCheckboxSavingClass, isBusy);
+  });
+}
+
+function decorateTaskCheckbox(checkbox, index, rootElement, taskListOptions) {
+  checkbox.classList.add(taskCheckboxClass);
+  checkbox.dataset.flatnotesTaskIndex = String(index);
+  checkbox.disabled = !!taskListOptions.disabled || !taskListOptions.onToggle;
+  checkbox.setAttribute(
+    "title",
+    checkbox.disabled ? "Open edit mode to change this item" : "Toggle item",
+  );
+
+  if (checkbox.flatnotesTaskChangeHandler) {
+    checkbox.removeEventListener("change", checkbox.flatnotesTaskChangeHandler);
+  }
+
+  checkbox.flatnotesTaskChangeHandler = async () => {
+    if (checkbox.disabled || !taskListOptions.onToggle) {
+      return;
+    }
+
+    const checked = checkbox.checked;
+    const previousChecked = !checked;
+    setTaskCheckboxesBusy(rootElement, true, taskListOptions);
+
+    try {
+      await taskListOptions.onToggle({
+        checked,
+        index,
+      });
+    } catch {
+      checkbox.checked = previousChecked;
+    } finally {
+      setTaskCheckboxesBusy(rootElement, false, taskListOptions);
+    }
+  };
+
+  checkbox.addEventListener("change", checkbox.flatnotesTaskChangeHandler);
+}
+
+export function enhanceTaskListCheckboxes(rootElement, taskListOptions = {}) {
+  if (!rootElement) {
+    return;
+  }
+
+  const taskCheckboxes = rootElement.querySelectorAll(
+    ".toastui-editor-contents li.task-list-item input[type='checkbox']",
+  );
+
+  taskCheckboxes.forEach((checkbox, index) => {
+    decorateTaskCheckbox(checkbox, index, rootElement, taskListOptions);
+  });
 }
 
 function isEscaped(text, index) {
@@ -509,8 +569,9 @@ export async function enhanceMermaidDiagrams(rootElement) {
   }
 }
 
-export async function enhanceRenderedMarkdown(rootElement) {
+export async function enhanceRenderedMarkdown(rootElement, options = {}) {
   enhanceInlineLatex(rootElement);
   await enhanceMermaidDiagrams(rootElement);
   enhanceCodeBlocks(rootElement);
+  enhanceTaskListCheckboxes(rootElement, options.taskList);
 }

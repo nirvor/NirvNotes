@@ -93,6 +93,8 @@
       <ToastViewer
         v-if="!editMode"
         :initialValue="note.content"
+        :task-checkboxes-disabled="!canModify"
+        :task-checkbox-toggle-handler="toggleTaskCheckbox"
         class="toast-viewer pb-4"
       />
       <ToastEditor
@@ -107,16 +109,6 @@
     </div>
   </LoadingIndicator>
 </template>
-
-<style>
-/* Disable checkboxes in view mode. See https://github.com/nhn/tui.editor/issues/1087. */
-.toast-viewer li.task-list-item {
-  pointer-events: none;
-}
-.toast-viewer li.task-list-item a {
-  pointer-events: auto;
-}
-</style>
 
 <script setup>
 import { mdiNoteOffOutline } from "@mdi/js";
@@ -311,6 +303,63 @@ function saveExisting(newTitle, newContent, close = false) {
       noteSaveSuccess(close);
     })
     .catch(noteSaveFailure);
+}
+
+function updateTaskCheckboxMarkdown(content, taskIndex, checked) {
+  let currentTaskIndex = 0;
+  const checkboxPattern = /^(\s*(?:[-*+]|\d+[.)])\s+)\[(?: |x|X)\]/gm;
+  const marker = checked ? "[x]" : "[ ]";
+
+  const updatedContent = content.replace(checkboxPattern, (match, prefix) => {
+    if (currentTaskIndex === taskIndex) {
+      currentTaskIndex += 1;
+      return `${prefix}${marker}`;
+    }
+
+    currentTaskIndex += 1;
+    return match;
+  });
+
+  return currentTaskIndex > taskIndex ? updatedContent : null;
+}
+
+async function toggleTaskCheckbox({ index, checked }) {
+  if (!canModify.value || isNewNote.value || !note.value.title) {
+    throw new Error("Task checkbox changes are not available here.");
+  }
+
+  const newContent = updateTaskCheckboxMarkdown(
+    note.value.content || "",
+    index,
+    checked,
+  );
+
+  if (newContent == null) {
+    toast.add(
+      getToastOptions(
+        "Could not match this checkbox to the Markdown source.",
+        "Not Saved",
+        "error",
+      ),
+    );
+    throw new Error("Task checkbox source line not found.");
+  }
+
+  if (newContent === note.value.content) {
+    return;
+  }
+
+  try {
+    note.value = await updateNote(
+      note.value.title,
+      note.value.title,
+      newContent,
+    );
+    clearDraft();
+  } catch (error) {
+    apiErrorHandler(error, toast);
+    throw error;
+  }
 }
 
 function noteSaveFailure(error) {

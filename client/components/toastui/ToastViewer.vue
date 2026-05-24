@@ -4,14 +4,19 @@
 
 <script setup>
 import Viewer from "@toast-ui/editor/dist/toastui-editor-viewer";
-import { onMounted, ref } from "vue";
+import { onMounted, ref, watch } from "vue";
 
 import baseOptions from "./baseOptions.js";
 import extendedAutolinks from "./extendedAutolinks.js";
-import { enhanceRenderedMarkdown } from "./renderEnhancements.js";
+import {
+  enhanceRenderedMarkdown,
+  enhanceTaskListCheckboxes,
+} from "./renderEnhancements.js";
 
 const props = defineProps({
   initialValue: String,
+  taskCheckboxToggleHandler: Function,
+  taskCheckboxesDisabled: Boolean,
 });
 
 const viewerElement = ref();
@@ -23,8 +28,24 @@ onMounted(async () => {
     el: viewerElement.value,
     initialValue: props.initialValue,
   });
-  await enhanceRenderedMarkdown(viewerElement.value);
+  await enhanceRenderedMarkdown(viewerElement.value, {
+    taskList: getTaskListOptions(),
+  });
 });
+
+function getTaskListOptions() {
+  return {
+    disabled: props.taskCheckboxesDisabled,
+    onToggle: props.taskCheckboxToggleHandler,
+  };
+}
+
+watch(
+  () => props.taskCheckboxesDisabled,
+  () => {
+    enhanceTaskListCheckboxes(viewerElement.value, getTaskListOptions());
+  },
+);
 </script>
 
 <style>
