@@ -206,6 +206,22 @@
   background-color: rgba(var(--theme-background), 0.88);
 }
 
+// Inline LaTeX
+.toastui-editor-contents .flatnotes-inline-latex {
+  color: inherit;
+  white-space: nowrap;
+}
+
+.toastui-editor-contents .flatnotes-inline-latex .katex {
+  color: inherit;
+  font-size: 1.03em;
+  line-height: 1;
+}
+
+.toastui-editor-contents .flatnotes-inline-latex .katex-html {
+  white-space: nowrap;
+}
+
 @media print {
   .flatnotes-code-copy-button {
     display: none;
