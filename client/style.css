@@ -46,6 +46,15 @@
         --theme-border: 236 238 240;
     }
 
+    html,
+    body,
+    #app {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        overflow-x: hidden;
+    }
+
     body.dark {
         /* --theme-brand: 248 166 107; */
         --theme-background: 34 38 44;

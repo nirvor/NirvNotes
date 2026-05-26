@@ -38,11 +38,16 @@
     "
   />
 
-  <LoadingIndicator ref="loadingIndicator" class="flex h-full flex-col">
+  <LoadingIndicator
+    ref="loadingIndicator"
+    class="flex h-full min-w-0 max-w-full flex-col overflow-x-hidden"
+  >
     <!-- Header -->
-    <div class="flex flex-col-reverse md:flex-row md:items-baseline">
+    <div
+      class="flex min-w-0 max-w-full flex-col-reverse md:flex-row md:items-baseline"
+    >
       <!-- Title -->
-      <div class="grow truncate text-3xl leading-[1.6em]">
+      <div class="min-w-0 max-w-full grow truncate text-3xl leading-[1.6em]">
         <span v-show="!editMode" :title="note.title">{{ note.title }}</span>
         <input
           v-show="editMode"
@@ -89,13 +94,13 @@
     <hr v-if="!editMode" class="my-4 border-theme-border" />
 
     <!-- Content -->
-    <div class="flex-1">
+    <div class="min-w-0 max-w-full flex-1 overflow-x-hidden">
       <ToastViewer
         v-if="!editMode"
         :initialValue="note.content"
         :task-checkboxes-disabled="!canModify"
         :task-checkbox-toggle-handler="toggleTaskCheckbox"
-        class="toast-viewer pb-4"
+        class="toast-viewer min-w-0 max-w-full pb-4"
       />
       <ToastEditor
         v-if="editMode"

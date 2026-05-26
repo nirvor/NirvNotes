@@ -1,7 +1,7 @@
 <template>
   <div
     ref="tabsBar"
-    class="mb-3 flex h-7 items-center gap-1 border-b border-theme-border pb-1 text-xs print:hidden"
+    class="mb-3 flex h-7 w-full min-w-0 max-w-full items-center gap-1 overflow-hidden border-b border-theme-border pb-1 text-xs print:hidden"
   >
     <RouterLink
       :to="allNotesRoute"
@@ -11,7 +11,9 @@
       <SvgIcon type="mdi" :path="mdilNoteMultiple" size="1.05rem" />
     </RouterLink>
 
-    <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+    <div
+      class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain"
+    >
       <div
         v-for="title in openTabs"
         :key="title"

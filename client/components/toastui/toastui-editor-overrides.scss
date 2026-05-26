@@ -22,6 +22,9 @@
 
 .toastui-editor-contents,
 .ProseMirror {
+  max-width: 100%;
+  min-width: 0;
+
   h1,
   .toastui-editor-md-heading1,
   h2,
@@ -39,6 +42,7 @@
     margin: 1em 0 0.5em 0;
     padding: 0;
     border-bottom: none;
+    overflow-wrap: anywhere;
 
     &:first-of-type {
       margin-top: 0;
@@ -78,7 +82,27 @@
   p {
     line-height: 1.6rem;
     margin: 0 0 1rem 0;
+    overflow-wrap: anywhere;
   }
+
+  li,
+  blockquote {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+}
+
+.toastui-editor-contents {
+  overflow-x: hidden;
+}
+
+.toastui-editor-contents img,
+.toastui-editor-contents video,
+.toastui-editor-contents canvas,
+.toastui-editor-contents iframe,
+.toastui-editor-contents svg {
+  max-width: 100%;
+  height: auto;
 }
 
 // Override the default font-family for code blocks as some of the fallbacks are not monospace
@@ -172,12 +196,17 @@
 // Code Block
 .toastui-editor-contents .flatnotes-code-block-wrapper {
   position: relative;
+  max-width: 100%;
   margin: 1rem 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
 
 .toastui-editor-contents .flatnotes-code-block-wrapper pre {
   margin: 0;
+  max-width: 100%;
   padding-right: 3.25rem;
+  overflow-x: auto;
 }
 
 .flatnotes-code-copy-button {
@@ -269,7 +298,9 @@
 .toastui-editor-contents .flatnotes-mermaid-wrapper {
   margin: 1rem 0;
   padding: 1rem;
+  max-width: 100%;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   border: 1px solid rgb(var(--theme-border));
   border-radius: 6px;
   background-color: rgb(var(--theme-background-elevated));
@@ -311,6 +342,10 @@
 }
 
 .toastui-editor-contents table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
   color: rgb(var(--theme-text));
 }
 
