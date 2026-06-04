@@ -283,6 +283,12 @@ function createImageLightbox() {
     }
   });
 
+  closeButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    closeImageLightbox();
+  });
+
   document.addEventListener("keydown", (event) => {
     if (!overlay.hidden && event.key === "Escape") {
       closeImageLightbox();
