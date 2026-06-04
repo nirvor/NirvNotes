@@ -105,6 +105,96 @@
   height: auto;
 }
 
+// Clean lead renderer
+.toastui-editor-contents .flatnotes-note-hidden-title {
+  display: none;
+}
+
+.toastui-editor-contents .flatnotes-note-lead {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 0 1.25rem 0;
+}
+
+.toastui-editor-contents .flatnotes-note-lead-abstract {
+  border: 1px solid rgb(var(--theme-border));
+  border-radius: 6px;
+  padding: 0.7rem 0.8rem;
+  background-color: rgb(var(--theme-background-elevated) / 0.72);
+}
+
+.toastui-editor-contents .flatnotes-note-lead-label {
+  margin-bottom: 0.45rem;
+  color: rgb(var(--theme-text-very-muted));
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.toastui-editor-contents .flatnotes-note-lead-abstract ul,
+.toastui-editor-contents .flatnotes-note-lead-abstract ol {
+  display: grid;
+  gap: 0.28rem;
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.toastui-editor-contents .flatnotes-note-lead-abstract li {
+  color: rgb(var(--theme-text-muted));
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.toastui-editor-contents .flatnotes-note-lead-abstract li::before {
+  margin-top: 0.55rem;
+}
+
+.toastui-editor-contents .flatnotes-note-lead-abstract li > p {
+  margin: 0;
+  line-height: inherit;
+}
+
+.toastui-editor-contents .flatnotes-note-lead-hero {
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgb(var(--theme-border));
+  border-radius: 6px;
+  background-color: rgb(var(--theme-background-elevated) / 0.55);
+}
+
+.toastui-editor-contents .flatnotes-note-lead-hero-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.toastui-editor-contents .flatnotes-note-lead-hero-button:focus-visible {
+  outline: 2px solid rgb(var(--theme-brand));
+  outline-offset: -3px;
+}
+
+.toastui-editor-contents .flatnotes-note-lead-hero-image {
+  display: block;
+  width: 100%;
+  height: clamp(8.5rem, 22vw, 14rem);
+  object-fit: contain;
+  background-color: rgb(var(--theme-background));
+}
+
+.toastui-editor-contents .flatnotes-note-lead-hero figcaption {
+  padding: 0.42rem 0.6rem;
+  border-top: 1px solid rgb(var(--theme-border));
+  color: rgb(var(--theme-text-very-muted));
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
 // Media figures
 .toastui-editor-contents .flatnotes-media-figure {
   max-width: 100%;

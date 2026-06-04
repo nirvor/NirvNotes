@@ -98,6 +98,7 @@
       <ToastViewer
         v-if="!editMode"
         :initialValue="note.content"
+        :note-title="note.title"
         :task-checkboxes-disabled="!canModify"
         :task-checkbox-toggle-handler="toggleTaskCheckbox"
         class="toast-viewer min-w-0 max-w-full pb-4"

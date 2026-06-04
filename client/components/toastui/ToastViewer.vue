@@ -15,6 +15,7 @@ import {
 
 const props = defineProps({
   initialValue: String,
+  noteTitle: String,
   taskCheckboxToggleHandler: Function,
   taskCheckboxesDisabled: Boolean,
 });
@@ -29,6 +30,7 @@ onMounted(async () => {
     initialValue: props.initialValue,
   });
   await enhanceRenderedMarkdown(viewerElement.value, {
+    noteTitle: props.noteTitle,
     taskList: getTaskListOptions(),
   });
 });

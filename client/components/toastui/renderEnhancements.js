@@ -26,6 +26,11 @@ const mediaLightboxOpenBodyClass = "flatnotes-media-lightbox-open";
 const mermaidLanguage = "mermaid";
 const mermaidWrapperClass = "flatnotes-mermaid-wrapper";
 const mermaidDiagramClass = "flatnotes-mermaid-diagram";
+const noteLeadClass = "flatnotes-note-lead";
+const noteLeadAbstractClass = "flatnotes-note-lead-abstract";
+const noteLeadHeroClass = "flatnotes-note-lead-hero";
+const noteLeadHeroImageClass = "flatnotes-note-lead-hero-image";
+const noteLeadHiddenTitleClass = "flatnotes-note-hidden-title";
 const bottomTagsClass = "flatnotes-bottom-tags";
 const bottomTagChipClass = "flatnotes-bottom-tag-chip";
 const tagAssistantHintClass = "flatnotes-tag-assistant-hint";
@@ -33,7 +38,19 @@ const taskCheckboxClass = "flatnotes-task-checkbox";
 const taskCheckboxSavingClass = "flatnotes-task-checkbox-saving";
 const resetDelayMs = 1600;
 const maxInlineLatexLength = 500;
+const maxLeadSearchElements = 18;
+const maxLeadAbstractItems = 5;
 const categoryTags = new Set(["private", "work", "infra"]);
+const abstractHeadingTexts = new Set([
+  "abstract",
+  "kurzantwort",
+  "kurzfassung",
+  "summary",
+  "tl;dr",
+  "tldr",
+  "key points",
+  "takeaways",
+]);
 const ignoredLatexSelector = [
   "a",
   "code",
@@ -634,6 +651,197 @@ export function enhanceMediaImages(rootElement) {
   contentRoot.querySelectorAll("img").forEach(decorateMediaImage);
 }
 
+function normalizeLeadText(text) {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function getMeaningfulChildren(contentRoot) {
+  return [...contentRoot.children].filter((element) => {
+    if (element.classList.contains(noteLeadClass)) {
+      return false;
+    }
+
+    return element.textContent.trim() || element.querySelector("img");
+  });
+}
+
+function hideDuplicateMarkdownTitle(contentRoot, noteTitle) {
+  if (!noteTitle) {
+    return;
+  }
+
+  const firstElement = getMeaningfulChildren(contentRoot)[0];
+  if (
+    firstElement?.tagName !== "H1" ||
+    normalizeLeadText(firstElement.textContent) !== normalizeLeadText(noteTitle)
+  ) {
+    return;
+  }
+
+  firstElement.classList.add(noteLeadHiddenTitleClass);
+  firstElement.setAttribute("aria-hidden", "true");
+}
+
+function isAbstractHeading(element) {
+  if (!/^H[1-6]$/.test(element.tagName)) {
+    return false;
+  }
+
+  return abstractHeadingTexts.has(normalizeLeadText(element.textContent));
+}
+
+function findNextList(children, startIndex) {
+  for (
+    let index = startIndex + 1;
+    index < Math.min(children.length, startIndex + 5);
+    index += 1
+  ) {
+    const element = children[index];
+    if (/^H[1-6]$/.test(element.tagName)) {
+      return null;
+    }
+
+    if (element.matches("ul, ol")) {
+      return element;
+    }
+  }
+
+  return null;
+}
+
+function isUsableLeadList(listElement) {
+  if (!listElement || !listElement.matches("ul, ol")) {
+    return false;
+  }
+
+  if (listElement.querySelector("input[type='checkbox']")) {
+    return false;
+  }
+
+  const items = [...listElement.querySelectorAll(":scope > li")];
+  return items.length >= 2 && items.length <= 9;
+}
+
+function findLeadAbstractList(contentRoot) {
+  const children = getMeaningfulChildren(contentRoot).slice(
+    0,
+    maxLeadSearchElements,
+  );
+
+  for (let index = 0; index < children.length; index += 1) {
+    if (!isAbstractHeading(children[index])) {
+      continue;
+    }
+
+    const listElement = findNextList(children, index);
+    if (isUsableLeadList(listElement)) {
+      return listElement;
+    }
+  }
+
+  return children.find((element) => isUsableLeadList(element));
+}
+
+function createLeadAbstract(sourceList) {
+  const abstract = document.createElement("section");
+  abstract.className = noteLeadAbstractClass;
+  abstract.setAttribute("aria-label", "Abstract");
+
+  const label = document.createElement("div");
+  label.className = "flatnotes-note-lead-label";
+  label.textContent = "Abstract";
+
+  const list = sourceList.cloneNode(true);
+  list.querySelectorAll("input").forEach((input) => input.remove());
+  [...list.querySelectorAll(":scope > li")]
+    .slice(maxLeadAbstractItems)
+    .forEach((item) => item.remove());
+
+  abstract.append(label, list);
+  return abstract;
+}
+
+function getFirstLeadImage(contentRoot) {
+  return contentRoot.querySelector(
+    `.${mediaFigureClass} img, .toastui-editor-contents > img, .toastui-editor-contents p > img`,
+  );
+}
+
+function createLeadHero(sourceImage) {
+  const imageSource = sourceImage.currentSrc || sourceImage.getAttribute("src");
+  if (!imageSource) {
+    return null;
+  }
+
+  const figure = document.createElement("figure");
+  figure.className = noteLeadHeroClass;
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "flatnotes-note-lead-hero-button";
+  button.setAttribute("aria-label", "Open hero image preview");
+  button.setAttribute("title", "Open image preview");
+
+  const image = document.createElement("img");
+  image.className = noteLeadHeroImageClass;
+  image.src = imageSource;
+  image.alt = getImageCaption(sourceImage) || "Note image";
+  image.loading = "eager";
+  image.decoding = "async";
+
+  button.addEventListener("click", () => openImageLightbox(image));
+  button.append(image);
+  figure.append(button);
+
+  const captionText = getImageCaption(sourceImage);
+  if (captionText) {
+    const caption = document.createElement("figcaption");
+    caption.textContent = captionText;
+    figure.append(caption);
+  }
+
+  return figure;
+}
+
+export function enhanceNoteLead(rootElement, options = {}) {
+  if (!rootElement) {
+    return;
+  }
+
+  const contentRoot = rootElement.querySelector(".toastui-editor-contents");
+  if (!contentRoot || contentRoot.querySelector(`.${noteLeadClass}`)) {
+    return;
+  }
+
+  hideDuplicateMarkdownTitle(contentRoot, options.noteTitle);
+
+  const abstractList = findLeadAbstractList(contentRoot);
+  const heroImage = getFirstLeadImage(contentRoot);
+  if (!abstractList && !heroImage) {
+    return;
+  }
+
+  const lead = document.createElement("section");
+  lead.className = noteLeadClass;
+
+  if (abstractList) {
+    lead.append(createLeadAbstract(abstractList));
+  }
+
+  if (heroImage) {
+    const hero = createLeadHero(heroImage);
+    if (hero) {
+      lead.append(hero);
+    }
+  }
+
+  if (!lead.children.length) {
+    return;
+  }
+
+  contentRoot.prepend(lead);
+}
+
 function normalizeTag(tag) {
   return tag.replace(/^#/, "").trim().toLowerCase();
 }
@@ -1187,6 +1395,7 @@ export async function enhanceRenderedMarkdown(rootElement, options = {}) {
   await enhanceMermaidDiagrams(rootElement);
   enhanceCodeBlocks(rootElement);
   enhanceMediaImages(rootElement);
+  enhanceNoteLead(rootElement, options);
   enhanceBottomTags(rootElement);
   enhanceTaskListCheckboxes(rootElement, options.taskList);
 }
