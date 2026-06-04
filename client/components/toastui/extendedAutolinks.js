@@ -107,7 +107,7 @@ function parseTagLink(source) {
             name: "search",
             query: {
               [params.searchTerm]: text,
-              [params.sortBy]: searchSortOptions.title,
+              [params.sortBy]: searchSortOptions.lastModified,
             },
           }).href
         }`,

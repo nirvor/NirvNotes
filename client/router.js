@@ -4,6 +4,12 @@ import { createRouter, createWebHistory } from "vue-router";
 
 import { authCheck } from "./api.js";
 
+function parseSearchSort(sortBy) {
+  const parsedSort = Number(sortBy);
+  return Object.values(constants.searchSortOptions).includes(parsedSort)
+    ? parsedSort
+    : constants.searchSortOptions.lastModified;
+}
 const router = createRouter({
   history: createWebHistory(""),
   routes: [
@@ -35,7 +41,7 @@ const router = createRouter({
       component: () => import("./views/SearchResults.vue"),
       props: (route) => ({
         searchTerm: route.query[constants.params.searchTerm],
-        sortBy: Number(route.query[constants.params.sortBy]) || undefined,
+        sortBy: parseSearchSort(route.query[constants.params.sortBy]),
       }),
     },
   ],
