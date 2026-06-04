@@ -3,6 +3,7 @@ import {
   mdiCheck,
   mdiClose,
   mdiContentCopy,
+  mdiInformationOutline,
   mdiLinkVariant,
   mdiOpenInNew,
   mdiTag,
@@ -18,6 +19,9 @@ const mediaButtonClass = "flatnotes-media-button";
 const mediaFigureClass = "flatnotes-media-figure";
 const mediaImageClass = "flatnotes-media-image";
 const mediaLightboxClass = "flatnotes-media-lightbox";
+const mediaLightboxDrawerOpenClass = "flatnotes-media-lightbox-drawer-open";
+const mediaLightboxMenuButtonOpenClass =
+  "flatnotes-media-lightbox-menu-button-open";
 const mediaLightboxOpenBodyClass = "flatnotes-media-lightbox-open";
 const mermaidLanguage = "mermaid";
 const mermaidWrapperClass = "flatnotes-mermaid-wrapper";
@@ -214,12 +218,149 @@ function closeImageLightbox() {
     return;
   }
 
+  setImageLightboxDrawerOpen(false);
   mediaLightboxElement.overlay.hidden = true;
   document.body.classList.remove(mediaLightboxOpenBodyClass);
 
   if (mediaLightboxLastFocusedElement?.focus) {
     mediaLightboxLastFocusedElement.focus();
   }
+}
+
+function setImageLightboxDrawerOpen(isOpen, options = {}) {
+  if (!mediaLightboxElement) {
+    return;
+  }
+
+  const { drawer, drawerButton } = mediaLightboxElement;
+  drawer.classList.toggle(mediaLightboxDrawerOpenClass, isOpen);
+  drawer.setAttribute("aria-hidden", String(!isOpen));
+  drawer.inert = !isOpen;
+  drawerButton.classList.toggle(mediaLightboxMenuButtonOpenClass, isOpen);
+  drawerButton.setAttribute("aria-expanded", String(isOpen));
+  drawerButton.setAttribute(
+    "aria-label",
+    isOpen ? "Close image actions" : "Open image actions",
+  );
+  drawerButton.setAttribute(
+    "title",
+    isOpen ? "Close image actions" : "Open image actions",
+  );
+
+  if (options.focus) {
+    if (isOpen) {
+      drawer.querySelector("a, button")?.focus();
+    } else {
+      drawerButton.focus();
+    }
+  }
+}
+
+function toggleImageLightboxDrawer() {
+  if (!mediaLightboxElement) {
+    return;
+  }
+
+  const isOpen = mediaLightboxElement.drawer.classList.contains(
+    mediaLightboxDrawerOpenClass,
+  );
+  setImageLightboxDrawerOpen(!isOpen, { focus: true });
+}
+
+function safeSetPointerCapture(element, pointerId) {
+  try {
+    element.setPointerCapture?.(pointerId);
+  } catch {
+    // Synthetic or interrupted pointer events may not be capturable.
+  }
+}
+
+function attachImageLightboxGestures(overlay, drawer) {
+  const edgeWidth = 36;
+  const maxVerticalDrift = 90;
+  const minSwipeDistance = 56;
+  let edgeGesture = null;
+  let drawerGesture = null;
+
+  function isTouchLike(event) {
+    return event.pointerType === "touch" || event.pointerType === "pen";
+  }
+
+  function isIgnoredTarget(target) {
+    return (
+      target instanceof Element &&
+      target.closest(
+        ".flatnotes-media-lightbox-drawer, .flatnotes-media-lightbox-menu-button",
+      )
+    );
+  }
+
+  overlay.addEventListener("pointerdown", (event) => {
+    if (
+      overlay.hidden ||
+      !isTouchLike(event) ||
+      isIgnoredTarget(event.target) ||
+      event.clientX < window.innerWidth - edgeWidth
+    ) {
+      return;
+    }
+
+    edgeGesture = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    safeSetPointerCapture(overlay, event.pointerId);
+  });
+
+  overlay.addEventListener("pointerup", (event) => {
+    if (!edgeGesture || event.pointerId !== edgeGesture.pointerId) {
+      return;
+    }
+
+    const deltaX = event.clientX - edgeGesture.startX;
+    const deltaY = Math.abs(event.clientY - edgeGesture.startY);
+    edgeGesture = null;
+
+    if (deltaX <= -minSwipeDistance && deltaY <= maxVerticalDrift) {
+      setImageLightboxDrawerOpen(true, { focus: true });
+    }
+  });
+
+  overlay.addEventListener("pointercancel", () => {
+    edgeGesture = null;
+  });
+
+  drawer.addEventListener("pointerdown", (event) => {
+    if (!isTouchLike(event)) {
+      return;
+    }
+
+    drawerGesture = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    safeSetPointerCapture(drawer, event.pointerId);
+  });
+
+  drawer.addEventListener("pointerup", (event) => {
+    if (!drawerGesture || event.pointerId !== drawerGesture.pointerId) {
+      return;
+    }
+
+    const deltaX = event.clientX - drawerGesture.startX;
+    const deltaY = Math.abs(event.clientY - drawerGesture.startY);
+    drawerGesture = null;
+
+    if (deltaX >= minSwipeDistance && deltaY <= maxVerticalDrift) {
+      setImageLightboxDrawerOpen(false, { focus: true });
+    }
+  });
+
+  drawer.addEventListener("pointercancel", () => {
+    drawerGesture = null;
+  });
 }
 
 function createImageLightbox() {
@@ -233,48 +374,85 @@ function createImageLightbox() {
   const panel = document.createElement("div");
   panel.className = "flatnotes-media-lightbox-panel";
 
-  const toolbar = document.createElement("div");
-  toolbar.className = "flatnotes-media-lightbox-toolbar";
+  const image = document.createElement("img");
+  image.className = "flatnotes-media-lightbox-image";
+  image.alt = "";
+
+  const drawerButton = createIconButton({
+    className: "flatnotes-media-lightbox-menu-button",
+    label: "Open image actions",
+    path: mdiInformationOutline,
+  });
+  drawerButton.setAttribute("aria-controls", "flatnotes-media-lightbox-drawer");
+  drawerButton.setAttribute("aria-expanded", "false");
+
+  const drawer = document.createElement("aside");
+  drawer.id = "flatnotes-media-lightbox-drawer";
+  drawer.className = "flatnotes-media-lightbox-drawer";
+  drawer.setAttribute("aria-hidden", "true");
+  drawer.setAttribute("aria-label", "Image actions");
+  drawer.inert = true;
+
+  const drawerHeader = document.createElement("div");
+  drawerHeader.className = "flatnotes-media-lightbox-drawer-header";
+
+  const drawerTitle = document.createElement("div");
+  drawerTitle.className = "flatnotes-media-lightbox-drawer-title";
+  drawerTitle.textContent = "Image";
+
+  const drawerCloseButton = createIconButton({
+    className: "flatnotes-media-lightbox-drawer-close",
+    label: "Close image actions",
+    path: mdiClose,
+  });
+
+  drawerHeader.append(drawerTitle, drawerCloseButton);
+
+  const captionBlock = document.createElement("div");
+  captionBlock.className = "flatnotes-media-lightbox-caption-block";
+
+  const captionLabel = document.createElement("div");
+  captionLabel.className = "flatnotes-media-lightbox-caption-label";
+  captionLabel.textContent = "Caption";
 
   const caption = document.createElement("div");
   caption.className = "flatnotes-media-lightbox-caption";
 
+  captionBlock.append(captionLabel, caption);
+
   const actions = document.createElement("div");
-  actions.className = "flatnotes-media-lightbox-actions";
+  actions.className = "flatnotes-media-lightbox-drawer-actions";
 
   const originalLink = document.createElement("a");
-  originalLink.className = "flatnotes-media-lightbox-action";
+  originalLink.className = "flatnotes-media-lightbox-drawer-action";
   originalLink.target = "_blank";
   originalLink.rel = "noopener noreferrer";
   originalLink.setAttribute("aria-label", "Open original image");
   originalLink.setAttribute("title", "Open original image");
   originalLink.append(
     createIcon(mdiOpenInNew),
-    document.createTextNode("Open"),
+    document.createTextNode("Open original"),
   );
 
   const copyButton = createIconButton({
-    className: "flatnotes-media-lightbox-action",
+    className: "flatnotes-media-lightbox-drawer-action",
     label: "Copy image link",
     path: mdiLinkVariant,
-    text: "Copy",
+    text: "Copy link",
   });
 
-  const closeButton = createIconButton({
-    className: "flatnotes-media-lightbox-close",
+  const closePreviewButton = createIconButton({
+    className: "flatnotes-media-lightbox-drawer-action",
     label: "Close image preview",
     path: mdiClose,
+    text: "Close preview",
   });
 
-  actions.append(originalLink, copyButton, closeButton);
-  toolbar.append(caption, actions);
+  actions.append(originalLink, copyButton, closePreviewButton);
+  drawer.append(drawerHeader, captionBlock, actions);
 
-  const image = document.createElement("img");
-  image.className = "flatnotes-media-lightbox-image";
-  image.alt = "";
-
-  panel.append(toolbar, image);
-  overlay.append(panel);
+  panel.append(image);
+  overlay.append(panel, drawerButton, drawer);
   document.body.append(overlay);
 
   overlay.addEventListener("click", (event) => {
@@ -283,7 +461,19 @@ function createImageLightbox() {
     }
   });
 
-  closeButton.addEventListener("click", (event) => {
+  drawerButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleImageLightboxDrawer();
+  });
+
+  drawerCloseButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setImageLightboxDrawerOpen(false, { focus: true });
+  });
+
+  closePreviewButton.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     closeImageLightbox();
@@ -309,13 +499,25 @@ function createImageLightbox() {
       copyButton.querySelector("span").textContent = "Failed";
     } finally {
       window.setTimeout(() => {
-        copyButton.querySelector("span").textContent = "Copy";
+        copyButton.querySelector("span").textContent = "Copy link";
         copyButton.disabled = false;
       }, resetDelayMs);
     }
   });
 
-  return { caption, closeButton, copyButton, image, originalLink, overlay };
+  attachImageLightboxGestures(overlay, drawer);
+
+  return {
+    caption,
+    closePreviewButton,
+    copyButton,
+    drawer,
+    drawerButton,
+    drawerCloseButton,
+    image,
+    originalLink,
+    overlay,
+  };
 }
 
 function getImageLightbox() {
@@ -332,7 +534,7 @@ function openImageLightbox(imageElement) {
     return;
   }
 
-  const { caption, closeButton, copyButton, image, originalLink, overlay } =
+  const { caption, copyButton, drawerButton, image, originalLink, overlay } =
     getImageLightbox();
   const captionText = getImageCaption(imageElement);
 
@@ -348,7 +550,8 @@ function openImageLightbox(imageElement) {
   copyButton.dataset.flatnotesImageUrl = url;
   overlay.hidden = false;
   document.body.classList.add(mediaLightboxOpenBodyClass);
-  closeButton.focus();
+  setImageLightboxDrawerOpen(false);
+  drawerButton.focus();
 }
 
 function isSoloImageParagraph(imageElement) {
