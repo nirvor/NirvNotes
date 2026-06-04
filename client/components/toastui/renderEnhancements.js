@@ -1,4 +1,12 @@
-import { mdiCheck, mdiContentCopy } from "@mdi/js";
+import {
+  mdiAlertCircleOutline,
+  mdiCheck,
+  mdiClose,
+  mdiContentCopy,
+  mdiLinkVariant,
+  mdiOpenInNew,
+  mdiTag,
+} from "@mdi/js";
 import katex from "katex";
 
 const codeBlockWrapperClass = "flatnotes-code-block-wrapper";
@@ -6,13 +14,22 @@ const codeCopyButtonClass = "flatnotes-code-copy-button";
 const copiedClass = "flatnotes-code-copy-button-copied";
 const failedClass = "flatnotes-code-copy-button-failed";
 const inlineLatexClass = "flatnotes-inline-latex";
+const mediaButtonClass = "flatnotes-media-button";
+const mediaFigureClass = "flatnotes-media-figure";
+const mediaImageClass = "flatnotes-media-image";
+const mediaLightboxClass = "flatnotes-media-lightbox";
+const mediaLightboxOpenBodyClass = "flatnotes-media-lightbox-open";
 const mermaidLanguage = "mermaid";
 const mermaidWrapperClass = "flatnotes-mermaid-wrapper";
 const mermaidDiagramClass = "flatnotes-mermaid-diagram";
+const bottomTagsClass = "flatnotes-bottom-tags";
+const bottomTagChipClass = "flatnotes-bottom-tag-chip";
+const tagAssistantHintClass = "flatnotes-tag-assistant-hint";
 const taskCheckboxClass = "flatnotes-task-checkbox";
 const taskCheckboxSavingClass = "flatnotes-task-checkbox-saving";
 const resetDelayMs = 1600;
 const maxInlineLatexLength = 500;
+const categoryTags = new Set(["private", "work", "infra"]);
 const ignoredLatexSelector = [
   "a",
   "code",
@@ -76,6 +93,8 @@ const latexRenderOptions = {
 
 let mermaidInstance;
 let mermaidRenderCounter = 0;
+let mediaLightboxElement;
+let mediaLightboxLastFocusedElement;
 
 function createIcon(path) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -148,6 +167,372 @@ async function writeClipboardText(text) {
   }
 
   writeTextViaTextarea(text);
+}
+
+function getBasePath() {
+  const basePath = document.querySelector("base")?.getAttribute("href") || "/";
+  return basePath === "/" ? "" : basePath.replace(/\/$/, "");
+}
+
+function createIconButton({ className, label, path, text }) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.setAttribute("aria-label", label);
+  button.setAttribute("title", label);
+  button.append(createIcon(path));
+
+  if (text) {
+    const labelElement = document.createElement("span");
+    labelElement.textContent = text;
+    button.append(labelElement);
+  }
+
+  return button;
+}
+
+function getImageCaption(imageElement) {
+  const caption = imageElement.getAttribute("alt")?.trim();
+  return caption || "";
+}
+
+function getImageUrl(imageElement) {
+  const source = imageElement.currentSrc || imageElement.getAttribute("src");
+  if (!source) {
+    return "";
+  }
+
+  try {
+    return new URL(source, window.location.href).href;
+  } catch {
+    return source;
+  }
+}
+
+function closeImageLightbox() {
+  if (!mediaLightboxElement) {
+    return;
+  }
+
+  mediaLightboxElement.overlay.hidden = true;
+  document.body.classList.remove(mediaLightboxOpenBodyClass);
+
+  if (mediaLightboxLastFocusedElement?.focus) {
+    mediaLightboxLastFocusedElement.focus();
+  }
+}
+
+function createImageLightbox() {
+  const overlay = document.createElement("div");
+  overlay.className = mediaLightboxClass;
+  overlay.hidden = true;
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", "Image preview");
+
+  const panel = document.createElement("div");
+  panel.className = "flatnotes-media-lightbox-panel";
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "flatnotes-media-lightbox-toolbar";
+
+  const caption = document.createElement("div");
+  caption.className = "flatnotes-media-lightbox-caption";
+
+  const actions = document.createElement("div");
+  actions.className = "flatnotes-media-lightbox-actions";
+
+  const originalLink = document.createElement("a");
+  originalLink.className = "flatnotes-media-lightbox-action";
+  originalLink.target = "_blank";
+  originalLink.rel = "noopener noreferrer";
+  originalLink.setAttribute("aria-label", "Open original image");
+  originalLink.setAttribute("title", "Open original image");
+  originalLink.append(
+    createIcon(mdiOpenInNew),
+    document.createTextNode("Open"),
+  );
+
+  const copyButton = createIconButton({
+    className: "flatnotes-media-lightbox-action",
+    label: "Copy image link",
+    path: mdiLinkVariant,
+    text: "Copy",
+  });
+
+  const closeButton = createIconButton({
+    className: "flatnotes-media-lightbox-close",
+    label: "Close image preview",
+    path: mdiClose,
+  });
+
+  actions.append(originalLink, copyButton, closeButton);
+  toolbar.append(caption, actions);
+
+  const image = document.createElement("img");
+  image.className = "flatnotes-media-lightbox-image";
+  image.alt = "";
+
+  panel.append(toolbar, image);
+  overlay.append(panel);
+  document.body.append(overlay);
+
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      closeImageLightbox();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (!overlay.hidden && event.key === "Escape") {
+      closeImageLightbox();
+    }
+  });
+
+  copyButton.addEventListener("click", async () => {
+    const url = copyButton.dataset.flatnotesImageUrl;
+    if (!url) {
+      return;
+    }
+
+    copyButton.disabled = true;
+    try {
+      await writeClipboardText(url);
+      copyButton.querySelector("span").textContent = "Copied";
+    } catch {
+      copyButton.querySelector("span").textContent = "Failed";
+    } finally {
+      window.setTimeout(() => {
+        copyButton.querySelector("span").textContent = "Copy";
+        copyButton.disabled = false;
+      }, resetDelayMs);
+    }
+  });
+
+  return { caption, closeButton, copyButton, image, originalLink, overlay };
+}
+
+function getImageLightbox() {
+  if (!mediaLightboxElement) {
+    mediaLightboxElement = createImageLightbox();
+  }
+
+  return mediaLightboxElement;
+}
+
+function openImageLightbox(imageElement) {
+  const url = getImageUrl(imageElement);
+  if (!url) {
+    return;
+  }
+
+  const { caption, closeButton, copyButton, image, originalLink, overlay } =
+    getImageLightbox();
+  const captionText = getImageCaption(imageElement);
+
+  mediaLightboxLastFocusedElement = document.activeElement;
+  image.src = url;
+  image.alt = captionText || "Preview image";
+  caption.textContent = captionText || "Image preview";
+  caption.classList.toggle(
+    "flatnotes-media-lightbox-caption-muted",
+    !captionText,
+  );
+  originalLink.href = url;
+  copyButton.dataset.flatnotesImageUrl = url;
+  overlay.hidden = false;
+  document.body.classList.add(mediaLightboxOpenBodyClass);
+  closeButton.focus();
+}
+
+function isSoloImageParagraph(imageElement) {
+  const parent = imageElement.parentElement;
+  return (
+    parent?.tagName === "P" &&
+    [...parent.childNodes].every(
+      (node) => node === imageElement || !node.textContent.trim(),
+    )
+  );
+}
+
+function createMediaFigure(imageElement) {
+  const figure = document.createElement("figure");
+  figure.className = mediaFigureClass;
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = mediaButtonClass;
+  button.setAttribute("aria-label", "Open image preview");
+  button.setAttribute("title", "Open image preview");
+
+  imageElement.classList.add(mediaImageClass);
+  imageElement.loading = imageElement.loading || "lazy";
+  imageElement.decoding = imageElement.decoding || "async";
+  button.append(imageElement);
+
+  const captionText = getImageCaption(imageElement);
+  if (captionText) {
+    const caption = document.createElement("figcaption");
+    caption.textContent = captionText;
+    figure.append(button, caption);
+  } else {
+    figure.append(button);
+  }
+
+  button.addEventListener("click", () => openImageLightbox(imageElement));
+  return figure;
+}
+
+function decorateMediaImage(imageElement) {
+  if (
+    imageElement.dataset.flatnotesMediaEnhanced === "true" ||
+    imageElement.closest(`.${mediaFigureClass}`) ||
+    imageElement.closest("a") ||
+    !getImageUrl(imageElement)
+  ) {
+    return;
+  }
+
+  imageElement.dataset.flatnotesMediaEnhanced = "true";
+
+  if (isSoloImageParagraph(imageElement)) {
+    const paragraph = imageElement.parentElement;
+    const figure = createMediaFigure(imageElement);
+    paragraph.replaceWith(figure);
+    return;
+  }
+
+  if (
+    imageElement.parentElement?.classList.contains("toastui-editor-contents")
+  ) {
+    imageElement.replaceWith(createMediaFigure(imageElement));
+    return;
+  }
+
+  imageElement.classList.add(mediaImageClass);
+}
+
+export function enhanceMediaImages(rootElement) {
+  if (!rootElement) {
+    return;
+  }
+
+  const contentRoot = rootElement.querySelector(".toastui-editor-contents");
+  if (!contentRoot) {
+    return;
+  }
+
+  contentRoot.querySelectorAll("img").forEach(decorateMediaImage);
+}
+
+function normalizeTag(tag) {
+  return tag.replace(/^#/, "").trim().toLowerCase();
+}
+
+function getTagsFromText(text) {
+  return [...text.matchAll(/#[a-zA-Z0-9_-]+/g)].map((match) =>
+    normalizeTag(match[0]),
+  );
+}
+
+function isBottomTagElement(element) {
+  if (element.closest("pre, code")) {
+    return false;
+  }
+
+  const text = element.textContent.trim();
+  return /^#[a-zA-Z0-9_-]+(?:\s+#[a-zA-Z0-9_-]+)*$/.test(text);
+}
+
+function createTagSearchHref(tag) {
+  const query = new URLSearchParams({ term: `#${tag}` });
+  return `${getBasePath()}/search?${query.toString()}`;
+}
+
+function createBottomTagChip(tag) {
+  const chip = document.createElement("a");
+  chip.className = bottomTagChipClass;
+  chip.href = createTagSearchHref(tag);
+  chip.setAttribute("title", `Search #${tag}`);
+  chip.append(createIcon(mdiTag), document.createTextNode(`#${tag}`));
+  return chip;
+}
+
+function createCategoryHint(hasTags) {
+  const hint = document.createElement("div");
+  hint.className = tagAssistantHintClass;
+  hint.append(createIcon(mdiAlertCircleOutline));
+
+  const text = document.createElement("span");
+  text.textContent = hasTags
+    ? "No main tag yet. Add #private, #work, or #infra at the bottom."
+    : "No bottom tags yet. Add #private, #work, or #infra at the bottom.";
+  hint.append(text);
+
+  return hint;
+}
+
+function findBottomTagElements(contentRoot) {
+  const tagElements = [];
+  const children = [...contentRoot.children];
+
+  for (let index = children.length - 1; index >= 0; index -= 1) {
+    const element = children[index];
+    if (!element.textContent.trim()) {
+      continue;
+    }
+
+    if (!isBottomTagElement(element)) {
+      break;
+    }
+
+    tagElements.unshift(element);
+  }
+
+  return tagElements;
+}
+
+export function enhanceBottomTags(rootElement) {
+  if (!rootElement) {
+    return;
+  }
+
+  const contentRoot = rootElement.querySelector(".toastui-editor-contents");
+  if (
+    !contentRoot ||
+    contentRoot.querySelector(`.${bottomTagsClass}, .${tagAssistantHintClass}`)
+  ) {
+    return;
+  }
+
+  const tagElements = findBottomTagElements(contentRoot);
+  const tags = [
+    ...new Set(
+      tagElements.flatMap((element) => getTagsFromText(element.textContent)),
+    ),
+  ];
+  const hasCategoryTag = tags.some((tag) => categoryTags.has(tag));
+
+  if (tags.length === 0) {
+    contentRoot.append(createCategoryHint(false));
+    return;
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = bottomTagsClass;
+  wrapper.setAttribute("aria-label", "Note tags");
+
+  const chipRow = document.createElement("div");
+  chipRow.className = "flatnotes-bottom-tags-row";
+  tags.forEach((tag) => chipRow.append(createBottomTagChip(tag)));
+  wrapper.append(chipRow);
+
+  if (!hasCategoryTag) {
+    wrapper.append(createCategoryHint(true));
+  }
+
+  tagElements[0].replaceWith(wrapper);
+  tagElements.slice(1).forEach((element) => element.remove());
 }
 
 function getCodeText(preElement) {
@@ -592,5 +977,7 @@ export async function enhanceRenderedMarkdown(rootElement, options = {}) {
   enhanceInlineLatex(rootElement);
   await enhanceMermaidDiagrams(rootElement);
   enhanceCodeBlocks(rootElement);
+  enhanceMediaImages(rootElement);
+  enhanceBottomTags(rootElement);
   enhanceTaskListCheckboxes(rootElement, options.taskList);
 }
