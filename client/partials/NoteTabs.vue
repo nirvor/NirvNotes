@@ -375,12 +375,14 @@ onBeforeUnmount(() => {
   background-color: rgb(var(--theme-background) / 0.86);
   box-shadow: 0 0.5rem 1.4rem rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(10px);
+  opacity: 1;
   pointer-events: auto;
   touch-action: manipulation;
   transition:
     background-color 120ms ease,
     border-color 120ms ease,
     color 120ms ease,
+    opacity 120ms ease,
     transform 160ms ease;
 }
 
@@ -395,6 +397,12 @@ onBeforeUnmount(() => {
 .flatnotes-note-drawer-handle:focus-visible {
   outline: 2px solid rgb(var(--theme-brand));
   outline-offset: 2px;
+}
+
+.flatnotes-note-drawer-handle-open {
+  transform: translateY(-50%) translateX(0.35rem);
+  opacity: 0;
+  pointer-events: none;
 }
 
 .flatnotes-note-drawer-backdrop {
