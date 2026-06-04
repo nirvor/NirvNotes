@@ -96,7 +96,10 @@
           <SvgIcon type="mdi" :path="mdilClock" size="0.95rem" />
           <span>Recent</span>
         </div>
-        <div v-if="recentOptions.length" class="flatnotes-note-drawer-list">
+        <div
+          v-if="recentOptions.length"
+          class="flatnotes-note-drawer-list flatnotes-note-drawer-recent-list"
+        >
           <RouterLink
             v-for="title in recentOptions"
             :key="title"
@@ -512,6 +515,10 @@ onBeforeUnmount(() => {
   gap: 0.45rem;
 }
 
+.flatnotes-note-drawer-recent-list {
+  gap: 0.25rem;
+}
+
 .flatnotes-note-drawer-row {
   display: flex;
   min-height: 2.6rem;
@@ -541,8 +548,10 @@ onBeforeUnmount(() => {
 
 .flatnotes-note-drawer-recent-link {
   display: block;
-  min-height: 2.5rem;
-  padding: 0.65rem 0.75rem;
+  min-height: 1.3rem;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.9rem;
+  line-height: 1.12;
 }
 
 .flatnotes-note-drawer-row-close {
