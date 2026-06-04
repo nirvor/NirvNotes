@@ -372,7 +372,7 @@ onBeforeUnmount(() => {
   border-right: 0;
   border-radius: 999px 0 0 999px;
   color: rgb(var(--theme-text-muted));
-  background-color: rgba(var(--theme-background), 0.86);
+  background-color: rgb(var(--theme-background) / 0.86);
   box-shadow: 0 0.5rem 1.4rem rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(10px);
   pointer-events: auto;
@@ -389,7 +389,7 @@ onBeforeUnmount(() => {
 .flatnotes-note-drawer-handle-open {
   color: rgb(var(--theme-text));
   border-color: rgb(var(--theme-text-muted));
-  background-color: rgba(var(--theme-background-elevated), 0.95);
+  background-color: rgb(var(--theme-background-elevated) / 0.95);
 }
 
 .flatnotes-note-drawer-handle:focus-visible {
@@ -419,7 +419,7 @@ onBeforeUnmount(() => {
     max(1rem, env(safe-area-inset-bottom));
   border-left: 1px solid rgb(var(--theme-border));
   color: rgb(var(--theme-text));
-  background-color: rgba(var(--theme-background), 0.97);
+  background-color: rgb(var(--theme-background) / 0.97);
   box-shadow: -0.85rem 0 2rem rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(14px);
   pointer-events: auto;
