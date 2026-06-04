@@ -31,6 +31,7 @@ const noteLeadAbstractClass = "flatnotes-note-lead-abstract";
 const noteLeadHeroClass = "flatnotes-note-lead-hero";
 const noteLeadHeroImageClass = "flatnotes-note-lead-hero-image";
 const noteLeadHiddenTitleClass = "flatnotes-note-hidden-title";
+const noteLeadSourceHiddenClass = "flatnotes-note-lead-source-hidden";
 const bottomTagsClass = "flatnotes-bottom-tags";
 const bottomTagChipClass = "flatnotes-bottom-tag-chip";
 const tagAssistantHintClass = "flatnotes-tag-assistant-hint";
@@ -735,21 +736,30 @@ function findLeadAbstractList(contentRoot) {
 
     const listElement = findNextList(children, index);
     if (isUsableLeadList(listElement)) {
-      return listElement;
+      return {
+        headingElement: children[index],
+        listElement,
+        shouldHideSource: true,
+      };
     }
   }
 
-  return children.find((element) => isUsableLeadList(element));
+  const fallbackList = children.find((element) => isUsableLeadList(element));
+  if (!fallbackList) {
+    return null;
+  }
+
+  return {
+    headingElement: null,
+    listElement: fallbackList,
+    shouldHideSource: false,
+  };
 }
 
 function createLeadAbstract(sourceList) {
   const abstract = document.createElement("section");
   abstract.className = noteLeadAbstractClass;
-  abstract.setAttribute("aria-label", "Abstract");
-
-  const label = document.createElement("div");
-  label.className = "flatnotes-note-lead-label";
-  label.textContent = "Abstract";
+  abstract.setAttribute("aria-label", "Note summary");
 
   const list = sourceList.cloneNode(true);
   list.querySelectorAll("input").forEach((input) => input.remove());
@@ -757,8 +767,21 @@ function createLeadAbstract(sourceList) {
     .slice(maxLeadAbstractItems)
     .forEach((item) => item.remove());
 
-  abstract.append(label, list);
+  abstract.append(list);
   return abstract;
+}
+
+function hidePromotedLeadSource(abstractMatch) {
+  if (!abstractMatch?.shouldHideSource) {
+    return;
+  }
+
+  [abstractMatch.headingElement, abstractMatch.listElement]
+    .filter(Boolean)
+    .forEach((element) => {
+      element.classList.add(noteLeadSourceHiddenClass);
+      element.setAttribute("aria-hidden", "true");
+    });
 }
 
 function getFirstLeadImage(contentRoot) {
@@ -815,17 +838,17 @@ export function enhanceNoteLead(rootElement, options = {}) {
 
   hideDuplicateMarkdownTitle(contentRoot, options.noteTitle);
 
-  const abstractList = findLeadAbstractList(contentRoot);
+  const abstractMatch = findLeadAbstractList(contentRoot);
   const heroImage = getFirstLeadImage(contentRoot);
-  if (!abstractList && !heroImage) {
+  if (!abstractMatch && !heroImage) {
     return;
   }
 
   const lead = document.createElement("section");
   lead.className = noteLeadClass;
 
-  if (abstractList) {
-    lead.append(createLeadAbstract(abstractList));
+  if (abstractMatch) {
+    lead.append(createLeadAbstract(abstractMatch.listElement));
   }
 
   if (heroImage) {
@@ -839,6 +862,7 @@ export function enhanceNoteLead(rootElement, options = {}) {
     return;
   }
 
+  hidePromotedLeadSource(abstractMatch);
   contentRoot.prepend(lead);
 }
 

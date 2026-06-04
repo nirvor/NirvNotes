@@ -110,6 +110,10 @@
   display: none;
 }
 
+.toastui-editor-contents .flatnotes-note-lead-source-hidden {
+  display: none;
+}
+
 .toastui-editor-contents .flatnotes-note-lead {
   display: grid;
   gap: 0.65rem;
@@ -124,12 +128,7 @@
 }
 
 .toastui-editor-contents .flatnotes-note-lead-label {
-  margin-bottom: 0.3rem;
-  color: rgb(var(--theme-text-very-muted));
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: uppercase;
+  display: none;
 }
 
 .toastui-editor-contents .flatnotes-note-lead-abstract ul,
@@ -164,10 +163,10 @@
 .toastui-editor-contents .flatnotes-note-lead-hero {
   max-width: 100%;
   margin: 0;
-  overflow: hidden;
-  border: 1px solid rgb(var(--theme-border));
-  border-radius: 6px;
-  background-color: rgb(var(--theme-background-elevated) / 0.55);
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
 }
 
 .toastui-editor-contents .flatnotes-note-lead-hero-button {
@@ -190,12 +189,12 @@
   width: 100%;
   height: clamp(7rem, 16vw, 10rem);
   object-fit: contain;
-  background-color: rgb(var(--theme-background));
+  background-color: transparent;
 }
 
 .toastui-editor-contents .flatnotes-note-lead-hero figcaption {
-  padding: 0.28rem 0.55rem;
-  border-top: 1px solid rgb(var(--theme-border));
+  padding: 0.28rem 0;
+  border-top: 0;
   color: rgb(var(--theme-text-very-muted));
   font-size: 0.72rem;
   line-height: 1.2;
@@ -212,7 +211,7 @@
   max-width: 100%;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   color: inherit;
   background: transparent;
   cursor: zoom-in;
@@ -227,16 +226,16 @@
   display: block;
   max-width: 100%;
   height: auto;
-  border: 1px solid rgb(var(--theme-border));
-  border-radius: 6px;
-  background-color: rgb(var(--theme-background-elevated));
+  border: 0;
+  border-radius: 4px;
+  background-color: transparent;
 }
 
 .toastui-editor-contents .flatnotes-media-button:hover .flatnotes-media-image,
 .toastui-editor-contents
   .flatnotes-media-button:focus-visible
   .flatnotes-media-image {
-  border-color: rgb(var(--theme-text-muted));
+  opacity: 0.95;
 }
 
 .toastui-editor-contents .flatnotes-media-figure figcaption {
