@@ -784,6 +784,20 @@ function hidePromotedLeadSource(abstractMatch) {
     });
 }
 
+function hidePromotedHeroSource(sourceImage) {
+  if (!sourceImage) {
+    return;
+  }
+
+  const sourceContainer =
+    sourceImage.closest(`.${mediaFigureClass}`) ||
+    sourceImage.closest("p") ||
+    sourceImage;
+
+  sourceContainer.classList.add(noteLeadSourceHiddenClass);
+  sourceContainer.setAttribute("aria-hidden", "true");
+}
+
 function getFirstLeadImage(contentRoot) {
   return contentRoot.querySelector(
     `.${mediaFigureClass} img, .toastui-editor-contents > img, .toastui-editor-contents p > img`,
@@ -851,10 +865,12 @@ export function enhanceNoteLead(rootElement, options = {}) {
     lead.append(createLeadAbstract(abstractMatch.listElement));
   }
 
+  let promotedHeroImage = null;
   if (heroImage) {
     const hero = createLeadHero(heroImage);
     if (hero) {
       lead.append(hero);
+      promotedHeroImage = heroImage;
     }
   }
 
@@ -863,6 +879,7 @@ export function enhanceNoteLead(rootElement, options = {}) {
   }
 
   hidePromotedLeadSource(abstractMatch);
+  hidePromotedHeroSource(promotedHeroImage);
   contentRoot.prepend(lead);
 }
 
