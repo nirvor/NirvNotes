@@ -1,7 +1,8 @@
 <template>
   <LoadingIndicator
     ref="loadingIndicator"
-    class="container mx-auto flex h-screen w-full min-w-0 max-w-full flex-col overflow-x-hidden px-2 py-4 print:max-w-full"
+    class="flatnotes-app-shell container mx-auto flex min-h-screen w-full min-w-0 max-w-full flex-col px-2 py-4 print:max-w-full"
+    :class="{ 'flatnotes-app-shell-note': route.name === 'note' || route.name === 'new' }"
   >
     <PrimeToast />
     <SearchModal v-model="isSearchModalVisible" />
@@ -84,3 +85,20 @@ function toggleSearchModal() {
 
 loadTheme();
 </script>
+
+<style scoped>
+.flatnotes-app-shell {
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
+.flatnotes-app-shell-note {
+  max-width: min(100%, 68rem);
+}
+
+@supports not (overflow: clip) {
+  .flatnotes-app-shell {
+    overflow-x: visible;
+  }
+}
+</style>

@@ -12,7 +12,14 @@ from auth.models import Login, Token
 from global_config import AuthType, GlobalConfig, GlobalConfigResponseModel
 from helpers import replace_base_href
 from notes.base import BaseNotes
-from notes.models import Note, NoteCreate, NoteUpdate, SearchResult
+from notes.models import (
+    Note,
+    NoteContext,
+    NoteCreate,
+    NoteIndexEntry,
+    NoteUpdate,
+    SearchResult,
+)
 
 global_config = GlobalConfig()
 auth: BaseAuth = global_config.load_auth()
@@ -32,6 +39,7 @@ replace_base_href("client/dist/index.html", global_config.path_prefix)
 @router.get("/login", include_in_schema=False)
 @router.get("/search", include_in_schema=False)
 @router.get("/new", include_in_schema=False)
+@router.get("/open-file", include_in_schema=False)
 @router.get("/note/{title}", include_in_schema=False)
 def root(title: str = ""):
     with open("client/dist/index.html", "r", encoding="utf-8") as f:
@@ -76,6 +84,23 @@ def get_note(title: str):
     """Get a specific note."""
     try:
         return note_storage.get(title)
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail=api_messages.invalid_note_title
+        )
+    except FileNotFoundError:
+        raise HTTPException(404, api_messages.note_not_found)
+
+
+@router.get(
+    "/api/notes/{title}/context",
+    dependencies=auth_deps,
+    response_model=NoteContext,
+)
+def get_note_context(title: str):
+    """Get a structured, LLM-friendly context export for a specific note."""
+    try:
+        return note_storage.get_context(title)
     except ValueError:
         raise HTTPException(
             status_code=400, detail=api_messages.invalid_note_title
@@ -174,6 +199,16 @@ def search(
 def get_tags():
     """Get a list of all indexed tags."""
     return note_storage.get_tags()
+
+
+@router.get(
+    "/api/index",
+    dependencies=auth_deps,
+    response_model=List[NoteIndexEntry],
+)
+def get_semantic_index():
+    """Get a compact semantic index of all notes."""
+    return note_storage.get_semantic_index()
 
 
 # endregion

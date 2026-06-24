@@ -248,3 +248,7 @@ dist
 .vscode/
 data/
 /notes/
+
+# Local QA artifacts
+.playwright-cli/
+/output/playwright/

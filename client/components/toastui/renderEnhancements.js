@@ -666,14 +666,28 @@ function getMeaningfulChildren(contentRoot) {
   });
 }
 
+function getPrimaryContentContainer(contentRoot) {
+  const children = getMeaningfulChildren(contentRoot);
+  if (
+    children.length === 1 &&
+    children[0].matches("article, main, .flatnote")
+  ) {
+    return children[0];
+  }
+
+  return contentRoot;
+}
+
 function hideDuplicateMarkdownTitle(contentRoot, noteTitle) {
   if (!noteTitle) {
     return;
   }
 
-  const firstElement = getMeaningfulChildren(contentRoot)[0];
+  const firstElement = getMeaningfulChildren(contentRoot)
+    .slice(0, 4)
+    .find((element) => element.tagName === "H1");
   if (
-    firstElement?.tagName !== "H1" ||
+    !firstElement ||
     normalizeLeadText(firstElement.textContent) !== normalizeLeadText(noteTitle)
   ) {
     return;
@@ -845,12 +859,21 @@ export function enhanceNoteLead(rootElement, options = {}) {
     return;
   }
 
-  const contentRoot = rootElement.querySelector(".toastui-editor-contents");
+  const outerContentRoot = rootElement.querySelector(
+    ".toastui-editor-contents",
+  );
+  const contentRoot = outerContentRoot
+    ? getPrimaryContentContainer(outerContentRoot)
+    : null;
   if (!contentRoot || contentRoot.querySelector(`.${noteLeadClass}`)) {
     return;
   }
 
   hideDuplicateMarkdownTitle(contentRoot, options.noteTitle);
+
+  if (contentRoot.querySelector(".flatnote-hero, .flatnote-banner")) {
+    return;
+  }
 
   const abstractMatch = findLeadAbstractList(contentRoot);
   const heroImage = getFirstLeadImage(contentRoot);
@@ -912,7 +935,7 @@ function createBottomTagChip(tag) {
   chip.className = bottomTagChipClass;
   chip.href = createTagSearchHref(tag);
   chip.setAttribute("title", `Search #${tag}`);
-  chip.append(createIcon(mdiTag), document.createTextNode(`#${tag}`));
+  chip.append(createIcon(mdiTag), document.createTextNode(tag));
   return chip;
 }
 
@@ -955,7 +978,12 @@ export function enhanceBottomTags(rootElement) {
     return;
   }
 
-  const contentRoot = rootElement.querySelector(".toastui-editor-contents");
+  const outerContentRoot = rootElement.querySelector(
+    ".toastui-editor-contents",
+  );
+  const contentRoot = outerContentRoot
+    ? getPrimaryContentContainer(outerContentRoot)
+    : null;
   if (
     !contentRoot ||
     contentRoot.querySelector(`.${bottomTagsClass}, .${tagAssistantHintClass}`)
@@ -989,7 +1017,11 @@ export function enhanceBottomTags(rootElement) {
     wrapper.append(createCategoryHint(true));
   }
 
+  const previousElement = tagElements[0].previousElementSibling;
   tagElements[0].replaceWith(wrapper);
+  if (previousElement?.tagName?.toLowerCase() === "hr") {
+    previousElement.remove();
+  }
   tagElements.slice(1).forEach((element) => element.remove());
 }
 
@@ -1436,7 +1468,9 @@ export async function enhanceRenderedMarkdown(rootElement, options = {}) {
   await enhanceMermaidDiagrams(rootElement);
   enhanceCodeBlocks(rootElement);
   enhanceMediaImages(rootElement);
-  enhanceNoteLead(rootElement, options);
+  if (options.noteLead !== false) {
+    enhanceNoteLead(rootElement, options);
+  }
   enhanceBottomTags(rootElement);
   enhanceTaskListCheckboxes(rootElement, options.taskList);
 }

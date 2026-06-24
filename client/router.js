@@ -36,6 +36,11 @@ const router = createRouter({
       component: () => import("./views/Note.vue"),
     },
     {
+      path: "/open-file",
+      name: "openFile",
+      component: () => import("./views/OpenFile.vue"),
+    },
+    {
       path: "/search",
       name: "search",
       component: () => import("./views/SearchResults.vue"),
@@ -76,6 +81,8 @@ router.afterEach((to) => {
     } else {
       title = "New Note - " + title;
     }
+  } else if (to.name === "openFile") {
+    title = "Open File - " + title;
   }
   document.title = title;
 });

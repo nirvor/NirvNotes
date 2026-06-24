@@ -90,11 +90,12 @@ export async function getNotes(term, sort, order, limit) {
   }
 }
 
-export async function createNote(title, content) {
+export async function createNote(title, content, format = "html") {
   try {
     const response = await api.post("api/notes", {
       title: title,
       content: content,
+      format: format,
     });
     return new Note(response.data);
   } catch (response) {
@@ -111,11 +112,32 @@ export async function getNote(title) {
   }
 }
 
-export async function updateNote(title, newTitle, newContent) {
+export async function getNoteContext(title) {
+  try {
+    const response = await api.get(
+      `api/notes/${encodeURIComponent(title)}/context`,
+    );
+    return response.data;
+  } catch (response) {
+    return Promise.reject(response);
+  }
+}
+
+export async function getSemanticIndex() {
+  try {
+    const response = await api.get("api/index");
+    return response.data;
+  } catch (response) {
+    return Promise.reject(response);
+  }
+}
+
+export async function updateNote(title, newTitle, newContent, format = "html") {
   try {
     const response = await api.patch(`api/notes/${encodeURIComponent(title)}`, {
       newTitle: newTitle,
       newContent: newContent,
+      newFormat: format,
     });
     return new Note(response.data);
   } catch (response) {

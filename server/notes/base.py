@@ -1,7 +1,14 @@
 from abc import ABC, abstractmethod
 from typing import Literal
 
-from .models import Note, NoteCreate, NoteUpdate, SearchResult
+from .models import (
+    Note,
+    NoteContext,
+    NoteCreate,
+    NoteIndexEntry,
+    NoteUpdate,
+    SearchResult,
+)
 
 
 class BaseNotes(ABC):
@@ -39,4 +46,14 @@ class BaseNotes(ABC):
     @abstractmethod
     def get_tags(self) -> list[str]:
         """Get a list of all indexed tags."""
+        pass
+
+    @abstractmethod
+    def get_context(self, title: str) -> NoteContext:
+        """Get structured context for a specific note."""
+        pass
+
+    @abstractmethod
+    def get_semantic_index(self) -> list[NoteIndexEntry]:
+        """Get a structured index of all notes."""
         pass

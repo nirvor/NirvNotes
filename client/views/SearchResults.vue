@@ -1,7 +1,11 @@
 <template>
   <div class="flex h-full max-w-[700px] flex-col">
     <!-- Search Input -->
-    <SearchInput :initialSearchTerm="props.searchTerm" class="mb-2" />
+    <SearchInput
+      :initialSearchTerm="effectiveSearchTerm"
+      class="mb-2"
+      showAllOnClear
+    />
 
     <LoadingIndicator ref="loadingIndicator" class="flex-1">
       <!-- Sort By -->
@@ -71,6 +75,8 @@ const router = useRouter();
 const sortMenu = ref();
 const toast = useToast();
 
+const effectiveSearchTerm = computed(() => props.searchTerm || "*");
+
 const sortByName = computed(() => {
   const sortOptionNames = {
     [searchSortOptions.title]: "Title",
@@ -82,7 +88,7 @@ const sortByName = computed(() => {
 
 function init() {
   loadingIndicator.value.setLoading();
-  getNotes(props.searchTerm)
+  getNotes(effectiveSearchTerm.value)
     .then((data) => {
       results.value = sortResults(data);
       if (results.value.length > 0) {
@@ -115,7 +121,7 @@ function updateSortByParam(sortBy) {
   router.push({
     name: "search",
     query: {
-      [params.searchTerm]: props.searchTerm,
+      [params.searchTerm]: effectiveSearchTerm.value,
       [params.sortBy]: sortBy,
     },
   });

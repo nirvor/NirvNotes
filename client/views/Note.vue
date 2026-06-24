@@ -40,14 +40,14 @@
 
   <LoadingIndicator
     ref="loadingIndicator"
-    class="flex h-full min-w-0 max-w-full flex-col overflow-x-hidden"
+    class="flatnotes-note-shell flex h-full min-w-0 max-w-full flex-col"
   >
     <!-- Header -->
     <div
       class="flex min-w-0 max-w-full flex-col-reverse md:flex-row md:items-baseline"
     >
       <!-- Title -->
-      <div class="min-w-0 max-w-full grow truncate text-3xl leading-[1.6em]">
+      <div class="min-w-0 max-w-full grow truncate text-2xl leading-[1.6em]">
         <span v-show="!editMode" :title="note.title">{{ note.title }}</span>
         <input
           v-show="editMode"
@@ -94,9 +94,24 @@
     <hr v-if="!editMode" class="my-4 border-theme-border" />
 
     <!-- Content -->
-    <div class="min-w-0 max-w-full flex-1 overflow-x-hidden">
+    <div class="flatnotes-note-content min-w-0 max-w-full flex-1">
       <ToastViewer
-        v-if="!editMode"
+        v-if="!editMode && !isHtmlFormat"
+        :initialValue="note.content"
+        :note-title="note.title"
+        :task-checkboxes-disabled="!canModify"
+        :task-checkbox-toggle-handler="toggleTaskCheckbox"
+        class="toast-viewer min-w-0 max-w-full pb-4"
+      />
+      <WorkNoteViewer
+        v-if="!editMode && isWorkNote"
+        :initialValue="note.content"
+        :note-title="note.title"
+        :task-checkboxes-disabled="!canModify"
+        :task-checkbox-toggle-handler="toggleTaskCheckbox"
+      />
+      <HtmlViewer
+        v-if="!editMode && isHtmlFormat && !isWorkNote"
         :initialValue="note.content"
         :note-title="note.title"
         :task-checkboxes-disabled="!canModify"
@@ -104,13 +119,37 @@
         class="toast-viewer min-w-0 max-w-full pb-4"
       />
       <ToastEditor
-        v-if="editMode"
-        ref="toastEditor"
+        v-if="editMode && editorFormat === 'markdown'"
+        ref="contentEditor"
         :initialValue="getInitialEditorValue()"
         :initialEditType="loadDefaultEditorMode()"
         :addImageBlobHook="addImageBlobHook"
         @change="startContentChangedTimeout"
         @keydown="keydownHandler"
+      />
+      <WorkNoteEditor
+        v-if="editMode && editorFormat === 'html' && editorKind === 'work'"
+        :key="editorKey"
+        ref="contentEditor"
+        :current-kind="editorKind"
+        :initialValue="getInitialEditorValue()"
+        :note-title="newTitle"
+        :show-kind-switch="isNewNote"
+        @change="startContentChangedTimeout"
+        @keydown="keydownHandler"
+        @set-kind="setNewNoteKind"
+      />
+      <HtmlEditor
+        v-if="editMode && editorFormat === 'html' && editorKind === 'research'"
+        :key="editorKey"
+        ref="contentEditor"
+        :current-kind="editorKind"
+        :initialValue="getInitialEditorValue()"
+        :addImageBlobHook="addImageBlobHook"
+        :show-kind-switch="isNewNote"
+        @change="startContentChangedTimeout"
+        @keydown="keydownHandler"
+        @set-kind="setNewNoteKind"
       />
     </div>
   </LoadingIndicator>
@@ -135,10 +174,19 @@ import {
 import { Note } from "../classes.js";
 import ConfirmModal from "../components/ConfirmModal.vue";
 import CustomButton from "../components/CustomButton.vue";
+import HtmlEditor from "../components/html/HtmlEditor.vue";
+import HtmlViewer from "../components/html/HtmlViewer.vue";
 import LoadingIndicator from "../components/LoadingIndicator.vue";
 import Toggle from "../components/Toggle.vue";
 import ToastEditor from "../components/toastui/ToastEditor.vue";
 import ToastViewer from "../components/toastui/ToastViewer.vue";
+import WorkNoteEditor from "../components/work/WorkNoteEditor.vue";
+import WorkNoteViewer from "../components/work/WorkNoteViewer.vue";
+import {
+  buildWorkNoteHtml,
+  extractWorkMarkdown,
+  isWorkNoteHtml,
+} from "../components/work/workNote.js";
 import { authTypes } from "../constants.js";
 import { useGlobalStore } from "../globalStore.js";
 import { getToastOptions } from "../helpers.js";
@@ -151,8 +199,16 @@ const props = defineProps({
 const canModify = computed(
   () => globalStore.config.authType != authTypes.readOnly,
 );
+const isHtmlFormat = computed(() => (note.value.format || "html") === "html");
+const isWorkNote = computed(
+  () => isHtmlFormat.value && isWorkNoteHtml(note.value.content || ""),
+);
 let contentChangedTimeout = null;
+const contentEditor = ref();
+const editorKey = ref(0);
 const editMode = ref(false);
+const editorFormat = ref("html");
+const editorKind = ref("work");
 const globalStore = useGlobalStore();
 const isSaveChangesModalVisible = ref(false);
 const isDeleteModalVisible = ref(false);
@@ -164,7 +220,6 @@ const reservedFilenameCharacters = /[<>:"/\\|?*]/;
 const router = useRouter();
 const newTitle = ref();
 const toast = useToast();
-const toastEditor = ref();
 const unsavedChanges = ref(false);
 
 function init() {
@@ -191,6 +246,8 @@ function init() {
   } else {
     newTitle.value = "";
     note.value = new Note();
+    editorFormat.value = "html";
+    editorKind.value = loadNewNoteKind();
     // Set the editMode to false to close any existing editors.
     // This ensures the editor is cleanly reinitialised in an empty state.
     // Simple fix for #266 without requiring a full re-work of the logic.
@@ -222,13 +279,28 @@ function editHandler() {
 
 function setEditMode() {
   newTitle.value = note.value.title;
+  editorFormat.value = note.value.format || "html";
+  if (editorFormat.value === "html") {
+    editorKind.value = isWorkNoteHtml(note.value.content || "")
+      ? "work"
+      : isNewNote.value
+        ? loadNewNoteKind()
+        : "research";
+  } else {
+    editorKind.value = "markdown";
+  }
   unsavedChanges.value = false;
   editMode.value = true;
 }
 
 function getInitialEditorValue() {
   const draftContent = loadDraft();
-  return draftContent ? draftContent : note.value.content;
+  const content = draftContent ? draftContent : note.value.content;
+  if (editorFormat.value === "html" && editorKind.value === "work") {
+    return content ? extractWorkMarkdown(content) : "";
+  }
+
+  return content;
 }
 
 // Note Deletion
@@ -267,16 +339,16 @@ function saveHandler(close = false) {
   }
 
   // Save Note
-  let newContent = toastEditor.value.getMarkdown();
+  let newContent = getEditorContent();
   if (isNewNote.value) {
-    saveNew(newTitle.value, newContent, close);
+    saveNew(newTitle.value, newContent, close, editorFormat.value);
   } else {
-    saveExisting(newTitle.value, newContent, close);
+    saveExisting(newTitle.value, newContent, close, editorFormat.value);
   }
 }
 
-function saveNew(newTitle, newContent, close = false) {
-  createNote(newTitle, newContent)
+function saveNew(newTitle, newContent, close = false, format = "html") {
+  createNote(newTitle, newContent, format)
     .then((data) => {
       clearDraft();
       note.value = data;
@@ -294,14 +366,18 @@ function saveNew(newTitle, newContent, close = false) {
     .catch(noteSaveFailure);
 }
 
-function saveExisting(newTitle, newContent, close = false) {
+function saveExisting(newTitle, newContent, close = false, format = "html") {
   // Return if no changes
-  if (newTitle == note.value.title && newContent == note.value.content) {
+  if (
+    newTitle == note.value.title &&
+    newContent == note.value.content &&
+    format == (note.value.format || "html")
+  ) {
     noteSaveSuccess(close);
     return;
   }
 
-  updateNote(note.value.title, newTitle, newContent)
+  updateNote(note.value.title, newTitle, newContent, format)
     .then((data) => {
       clearDraft();
       note.value = data;
@@ -329,21 +405,73 @@ function updateTaskCheckboxMarkdown(content, taskIndex, checked) {
   return currentTaskIndex > taskIndex ? updatedContent : null;
 }
 
+function updateTaskCheckboxHtml(content, taskIndex, checked) {
+  const isFullDocument = /<(?:!doctype|html|head|body)\b/i.test(content || "");
+  const parsedDocument = new DOMParser().parseFromString(
+    content || "",
+    "text/html",
+  );
+  const taskItems = [
+    ...parsedDocument.body.querySelectorAll("li.task-list-item"),
+  ];
+  const taskItem = taskItems[taskIndex];
+  if (!taskItem) {
+    return null;
+  }
+
+  let checkbox = taskItem.querySelector(":scope > input[type='checkbox']");
+  if (!checkbox) {
+    checkbox = parsedDocument.createElement("input");
+    checkbox.type = "checkbox";
+    taskItem.insertBefore(checkbox, taskItem.firstChild);
+  }
+
+  if (checked) {
+    checkbox.setAttribute("checked", "");
+    taskItem.classList.add("checked");
+    taskItem.setAttribute("data-task-checked", "true");
+  } else {
+    checkbox.removeAttribute("checked");
+    taskItem.classList.remove("checked");
+    taskItem.removeAttribute("data-task-checked");
+  }
+
+  if (isFullDocument) {
+    return `<!doctype html>\n${parsedDocument.documentElement.outerHTML}`;
+  }
+
+  return parsedDocument.body.innerHTML;
+}
+
+function updateTaskCheckboxWorkHtml(content, taskIndex, checked) {
+  const markdown = extractWorkMarkdown(content || "");
+  const updatedMarkdown = updateTaskCheckboxMarkdown(
+    markdown,
+    taskIndex,
+    checked,
+  );
+  if (updatedMarkdown == null) {
+    return null;
+  }
+
+  return buildWorkNoteHtml(note.value.title, updatedMarkdown);
+}
+
 async function toggleTaskCheckbox({ index, checked }) {
   if (!canModify.value || isNewNote.value || !note.value.title) {
     throw new Error("Task checkbox changes are not available here.");
   }
 
-  const newContent = updateTaskCheckboxMarkdown(
-    note.value.content || "",
-    index,
-    checked,
-  );
+  const newContent = isWorkNote.value
+    ? updateTaskCheckboxWorkHtml(note.value.content || "", index, checked)
+    : isHtmlFormat.value
+      ? updateTaskCheckboxHtml(note.value.content || "", index, checked)
+      : updateTaskCheckboxMarkdown(note.value.content || "", index, checked);
 
   if (newContent == null) {
     toast.add(
       getToastOptions(
-        "Could not match this checkbox to the Markdown source.",
+        "Could not match this checkbox to the note source.",
         "Not Saved",
         "error",
       ),
@@ -360,6 +488,7 @@ async function toggleTaskCheckbox({ index, checked }) {
       note.value.title,
       note.value.title,
       newContent,
+      note.value.format || "html",
     );
     clearDraft();
   } catch (error) {
@@ -422,19 +551,15 @@ function addImageBlobHook(file, callback) {
   postAttachment(file).then(function (data) {
     if (data) {
       // If the user has entered an alt text, use it. Otherwise, use the filename returned by the API.
-      const altText = altTextInputValue ? altTextInputValue : data.filename;
-      callback(data.url, altText);
+      const altText = altTextInputValue
+        ? altTextInputValue
+        : data.originalFilename || data.filename;
+      callback(data.url, altText, data);
     }
   });
 }
 
 function postAttachment(file) {
-  // Invalid Character Validation
-  if (reservedFilenameCharacters.test(file.name)) {
-    badFilenameToast("Title");
-    return;
-  }
-
   // Uploading Toast
   toast.add(getToastOptions("Uploading attachment..."));
 
@@ -444,7 +569,9 @@ function postAttachment(file) {
       // Success Toast
       toast.add(
         getToastOptions(
-          "Attachment uploaded successfully ✓",
+          data.reused
+            ? "Existing media asset reused ✓"
+            : "Attachment uploaded successfully ✓",
           "Success",
           "success",
         ),
@@ -496,7 +623,7 @@ function contentChangedHandler() {
 
 // Drafts
 function saveDraft() {
-  const content = toastEditor.value.getMarkdown();
+  const content = getEditorContent();
   const userHasPersistedToken = isCurrentTokenStored();
   if (content) {
     if (userHasPersistedToken) {
@@ -569,7 +696,14 @@ function setBeforeUnloadConfirmation(enable = true) {
 }
 
 function saveDefaultEditorMode() {
-  const isWysiwygMode = toastEditor.value.isWysiwygMode();
+  if (
+    editorFormat.value !== "markdown" ||
+    !contentEditor.value?.isWysiwygMode
+  ) {
+    return;
+  }
+
+  const isWysiwygMode = contentEditor.value.isWysiwygMode();
   localStorage.setItem(
     "defaultEditorMode",
     isWysiwygMode ? "wysiwyg" : "markdown",
@@ -581,13 +715,90 @@ function loadDefaultEditorMode() {
   return defaultWysiwygMode || "markdown";
 }
 
+function loadNewNoteKind() {
+  return localStorage.getItem("flatnotesNewNoteKind") || "work";
+}
+
+function currentNewEditorContentLooksEdited() {
+  if (!contentEditor.value) {
+    return false;
+  }
+
+  if (editorKind.value === "work" && contentEditor.value.getMarkdown) {
+    const markdown = contentEditor.value.getMarkdown().trim();
+    return Boolean(markdown);
+  }
+
+  if (editorKind.value === "research" && contentEditor.value.getContent) {
+    return Boolean(contentEditor.value.getContent().trim());
+  }
+
+  return false;
+}
+
+function setNewNoteKind(kind) {
+  if (kind === editorKind.value) {
+    return;
+  }
+
+  if (
+    currentNewEditorContentLooksEdited() &&
+    !window.confirm("Switch editor mode and reset this unsaved note?")
+  ) {
+    return;
+  }
+
+  editorKind.value = kind;
+  localStorage.setItem("flatnotesNewNoteKind", kind);
+  note.value.content =
+    kind === "work"
+      ? buildWorkNoteHtml(newTitle.value || "Untitled", "")
+      : "";
+  clearDraft();
+  unsavedChanges.value = false;
+  editorKey.value += 1;
+}
+
 function isContentChanged() {
   return (
     newTitle.value != note.value.title ||
-    toastEditor.value.getMarkdown() != note.value.content
+    getEditorContent() != note.value.content ||
+    editorFormat.value != (note.value.format || "html")
   );
+}
+
+function getEditorContent() {
+  if (!contentEditor.value) {
+    return "";
+  }
+
+  if (editorFormat.value === "markdown") {
+    return contentEditor.value.getMarkdown();
+  }
+
+  return contentEditor.value.getContent(newTitle.value || note.value.title);
 }
 
 watch(() => props.title, init);
 onMounted(init);
 </script>
+
+<style scoped>
+.flatnotes-note-shell,
+.flatnotes-note-content {
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
+.flatnotes-note-shell {
+  width: min(100%, 68rem);
+  margin-inline: auto;
+}
+
+@supports not (overflow: clip) {
+  .flatnotes-note-shell,
+  .flatnotes-note-content {
+    overflow-x: visible;
+  }
+}
+</style>

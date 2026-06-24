@@ -16,7 +16,8 @@
         @keydown="keydownHandler"
         @keyup="stateChangeHandler"
         @click="stateChangeHandler"
-        @blur="tagMenuVisible = false"
+        @focus="stateChangeHandler"
+        @blur="hideMenus"
         @keydown.down.prevent
         @keydown.up.prevent
       />
@@ -40,6 +41,29 @@
         {{ tag }}
       </p>
     </div>
+
+    <!-- Empty Search Tag Cloud -->
+    <div
+      v-if="tagCloudVisible"
+      class="mt-2 w-full rounded-md border border-theme-border bg-theme-background p-3 dark:bg-theme-background-elevated"
+    >
+      <p class="mb-2 text-xs font-bold uppercase text-theme-text-very-muted">
+        Top Tags
+      </p>
+      <div class="flex flex-wrap gap-2">
+        <button
+          v-for="tag in topTags"
+          :key="tag.name"
+          type="button"
+          class="rounded-full border border-theme-border bg-theme-background px-2.5 py-1 text-sm text-theme-text hover:border-theme-brand hover:text-theme-brand dark:bg-theme-background"
+          @click="tagCloudChosen(tag.name)"
+          @mousedown.prevent
+        >
+          {{ tag.name }}
+          <span class="ml-1 text-theme-text-muted">{{ tag.count }}</span>
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -49,27 +73,39 @@ import { useToast } from "primevue/usetoast";
 import { ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
-import { apiErrorHandler, getTags } from "../api.js";
+import { apiErrorHandler, getSemanticIndex, getTags } from "../api.js";
 import IconLabel from "../components/IconLabel.vue";
 import * as constants from "../constants.js";
-import { getToastOptions } from "../helpers.js";
 
 const props = defineProps({
   initialSearchTerm: { type: String, default: "" },
   large: Boolean,
   placeholder: { type: String, default: "Search..." },
+  showAllOnClear: Boolean,
 });
 const emit = defineEmits(["search"]);
 
 const input = ref();
 const router = useRouter();
-const searchTerm = ref(props.initialSearchTerm);
+const searchTerm = ref(searchTermForInput(props.initialSearchTerm));
 const toast = useToast();
 let tags = null;
 const tagMatches = ref([]);
 const tagMenuItems = ref([]);
 const tagMenuIndex = ref(0);
 const tagMenuVisible = ref(false);
+const tagCloudVisible = ref(false);
+const topTags = ref([]);
+let tagCloudLoaded = false;
+
+function searchTermForInput(value = "") {
+  return value === "*" ? "" : value || "";
+}
+
+function hideMenus() {
+  tagMenuVisible.value = false;
+  tagCloudVisible.value = false;
+}
 
 function keydownHandler(event) {
   // Tag Menu Open
@@ -105,27 +141,84 @@ function tagChosen(tag) {
   tagMenuVisible.value = false;
 }
 
+function tagCloudChosen(tag) {
+  searchTerm.value = `#${tag}`;
+  hideMenus();
+  search();
+}
+
 function search() {
-  if (searchTerm.value) {
-    router.push({
-      name: "search",
-      query: { [constants.params.searchTerm]: searchTerm.value },
-    });
-    emit("search");
-  } else {
-    toast.add(getToastOptions("Please enter a search term.", "Error", "error"));
-  }
+  const term = searchTerm.value.trim();
+  const query =
+    term.length > 0
+      ? { [constants.params.searchTerm]: term }
+      : {
+          [constants.params.searchTerm]: "*",
+          [constants.params.sortBy]: constants.searchSortOptions.lastModified,
+        };
+
+  router.push({
+    name: "search",
+    query,
+  });
+  emit("search");
 }
 
 function stateChangeHandler() {
   const wordOnCursor = getWordOnCursor();
-  if (wordOnCursor.charAt(0) !== "#") {
+  const emptySearch = searchTerm.value.trim().length === 0;
+
+  if (emptySearch) {
     tagMenuVisible.value = false;
     tagMatches.value = [];
+    showTagCloud();
+    if (props.showAllOnClear && props.initialSearchTerm !== "*") {
+      router.replace({
+        name: "search",
+        query: {
+          [constants.params.searchTerm]: "*",
+          [constants.params.sortBy]: constants.searchSortOptions.lastModified,
+        },
+      });
+    }
+  } else if (wordOnCursor.charAt(0) !== "#") {
+    tagMenuVisible.value = false;
+    tagCloudVisible.value = false;
+    tagMatches.value = [];
   } else {
+    tagCloudVisible.value = false;
     // All tags are stored in lowercase, so we can do a case-insensitive search.
     filterTagMatches(wordOnCursor.toLowerCase());
   }
+}
+
+async function showTagCloud() {
+  if (!tagCloudLoaded) {
+    try {
+      const index = await getSemanticIndex();
+      const counts = new Map();
+      index.forEach((note) => {
+        new Set(note.tags || []).forEach((tag) => {
+          counts.set(tag, (counts.get(tag) || 0) + 1);
+        });
+      });
+      topTags.value = [...counts.entries()]
+        .map(([name, count]) => ({ name, count }))
+        .sort((left, right) => {
+          if (right.count !== left.count) {
+            return right.count - left.count;
+          }
+          return left.name.localeCompare(right.name);
+        })
+        .slice(0, 14);
+    } catch (error) {
+      topTags.value = [];
+      apiErrorHandler(error, toast);
+    }
+    tagCloudLoaded = true;
+  }
+
+  tagCloudVisible.value = topTags.value.length > 0;
 }
 
 async function filterTagMatches(input) {
@@ -197,7 +290,8 @@ function replaceWordOnCursor(replacement) {
 watch(
   () => props.initialSearchTerm,
   () => {
-    searchTerm.value = props.initialSearchTerm;
+    searchTerm.value = searchTermForInput(props.initialSearchTerm);
   },
+  { immediate: true },
 );
 </script>

@@ -15,6 +15,10 @@ import {
 
 const props = defineProps({
   initialValue: String,
+  enhanceNoteLead: {
+    type: Boolean,
+    default: true,
+  },
   noteTitle: String,
   taskCheckboxToggleHandler: Function,
   taskCheckboxesDisabled: Boolean,
@@ -30,6 +34,7 @@ onMounted(async () => {
     initialValue: props.initialValue,
   });
   await enhanceRenderedMarkdown(viewerElement.value, {
+    noteLead: props.enhanceNoteLead,
     noteTitle: props.noteTitle,
     taskList: getTaskListOptions(),
   });

@@ -1,7 +1,21 @@
 {
   "name": "flatnotes",
   "short_name": "flatnotes",
+  "scope": "/",
   "start_url": "/",
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
+  "file_handlers": [
+    {
+      "action": "/open-file",
+      "accept": {
+        "text/markdown": [".md"],
+        "text/plain": [".txt", ".cfg", ".ini"]
+      },
+      "launch_type": "single-client"
+    }
+  ],
   "icons": [
     {
       "src": "android-chrome-192x192.png",
