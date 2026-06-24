@@ -47,7 +47,7 @@
       class="flex min-w-0 max-w-full flex-col-reverse md:flex-row md:items-baseline"
     >
       <!-- Title -->
-      <div class="min-w-0 max-w-full grow truncate text-2xl leading-[1.6em]">
+      <div class="min-w-0 max-w-full grow truncate text-2xl leading-[1.35em]">
         <span v-show="!editMode" :title="note.title">{{ note.title }}</span>
         <input
           v-show="editMode"
@@ -91,7 +91,7 @@
       </div>
     </div>
 
-    <hr v-if="!editMode" class="my-4 border-theme-border" />
+    <hr v-if="!editMode" class="my-2 border-theme-border" />
 
     <!-- Content -->
     <div class="flatnotes-note-content min-w-0 max-w-full flex-1">

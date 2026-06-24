@@ -61,15 +61,24 @@ async function copyMarkdown() {
 
 <style lang="scss" scoped>
 .flatnotes-work-viewer {
+  position: relative;
   min-width: 0;
   max-width: 100%;
 }
 
 .flatnotes-work-viewer-toolbar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  margin-bottom: 0.55rem;
+  margin: 0;
+}
+
+.flatnotes-work-viewer :deep(.toastui-editor-contents > :first-child) {
+  padding-right: 2rem;
 }
 
 .flatnotes-work-viewer-copy {

@@ -14,6 +14,7 @@ const codeBlockWrapperClass = "flatnotes-code-block-wrapper";
 const codeCopyButtonClass = "flatnotes-code-copy-button";
 const copiedClass = "flatnotes-code-copy-button-copied";
 const failedClass = "flatnotes-code-copy-button-failed";
+const inlineArrowClass = "flatnotes-inline-arrow";
 const inlineLatexClass = "flatnotes-inline-latex";
 const mediaButtonClass = "flatnotes-media-button";
 const mediaFigureClass = "flatnotes-media-figure";
@@ -63,6 +64,21 @@ const ignoredLatexSelector = [
   "textarea",
   ".flatnotes-code-block-wrapper",
   ".katex",
+].join(",");
+const ignoredArrowSelector = [
+  "a",
+  "code",
+  "kbd",
+  "pre",
+  "samp",
+  "script",
+  "style",
+  "textarea",
+  ".flatnotes-code-block-wrapper",
+  ".flatnotes-bottom-tags",
+  ".katex",
+  `.${inlineArrowClass}`,
+  `.${inlineLatexClass}`,
 ].join(",");
 
 const latexMacros = {
@@ -1305,6 +1321,69 @@ export function enhanceInlineLatex(rootElement) {
   textNodes.forEach(replaceTextNodeWithInlineLatex);
 }
 
+function shouldSkipArrowTextNode(textNode) {
+  const parentElement = textNode.parentElement;
+  return !parentElement || !!parentElement.closest(ignoredArrowSelector);
+}
+
+function replaceTextNodeWithInlineArrows(textNode) {
+  const text = textNode.textContent;
+  if (!text.includes("->")) {
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  const segments = text.split("->");
+
+  segments.forEach((segment, index) => {
+    if (segment) {
+      fragment.append(document.createTextNode(segment));
+    }
+
+    if (index < segments.length - 1) {
+      const arrow = document.createElement("span");
+      arrow.className = inlineArrowClass;
+      arrow.textContent = "\u2192";
+      fragment.append(arrow);
+    }
+  });
+
+  textNode.parentNode.replaceChild(fragment, textNode);
+}
+
+export function enhanceInlineArrows(rootElement) {
+  if (!rootElement) {
+    return;
+  }
+
+  const contentRoot = rootElement.querySelector(
+    ".toastui-editor-contents:not(.flatnotes-html-contents)",
+  );
+  if (!contentRoot) {
+    return;
+  }
+
+  const textNodes = [];
+  const walker = document.createTreeWalker(contentRoot, NodeFilter.SHOW_TEXT, {
+    acceptNode(textNode) {
+      if (
+        shouldSkipArrowTextNode(textNode) ||
+        !textNode.textContent.includes("->")
+      ) {
+        return NodeFilter.FILTER_REJECT;
+      }
+
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+
+  while (walker.nextNode()) {
+    textNodes.push(walker.currentNode);
+  }
+
+  textNodes.forEach(replaceTextNodeWithInlineArrows);
+}
+
 function getThemeColor(name, fallback) {
   const value = getComputedStyle(document.body).getPropertyValue(name).trim();
 
@@ -1465,6 +1544,7 @@ export async function enhanceMermaidDiagrams(rootElement) {
 
 export async function enhanceRenderedMarkdown(rootElement, options = {}) {
   enhanceInlineLatex(rootElement);
+  enhanceInlineArrows(rootElement);
   await enhanceMermaidDiagrams(rootElement);
   enhanceCodeBlocks(rootElement);
   enhanceMediaImages(rootElement);
