@@ -1,13 +1,27 @@
 <template>
-  <nav class="mb-4 flex justify-end align-top md:mb-6">
-    <div class="flex grow items-start justify-end">
+  <nav class="mb-3 flex justify-end align-top md:mb-4">
+    <div class="flex grow flex-wrap items-center justify-end gap-1">
+      <template v-for="action in noteActions" :key="action.key">
+        <CustomButton
+          v-if="action.visible !== false"
+          :label="action.label"
+          :iconPath="action.iconPath"
+          :style="action.style || 'subtle'"
+          class="relative"
+          @click="action.handler"
+        >
+          <div
+            v-if="action.unsaved"
+            class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-theme-brand"
+          ></div>
+        </CustomButton>
+      </template>
       <!-- New Note -->
       <RouterLink v-if="showNewButton" :to="{ name: 'new' }">
         <CustomButton :iconPath="mdilPlusCircle" label="New Note" />
       </RouterLink>
       <!-- Menu -->
       <CustomButton
-        class="ml-1"
         :iconPath="mdilMenu"
         label="Menu"
         @click="toggleMenu"
@@ -81,6 +95,8 @@ const menuItems = [
 const showNewButton = computed(() => {
   return globalStore.config.authType !== authTypes.readOnly;
 });
+
+const noteActions = computed(() => globalStore.noteActions);
 
 function logOut() {
   clearStoredToken();

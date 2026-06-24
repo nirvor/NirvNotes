@@ -1,5 +1,4 @@
 import {
-  mdiAlertCircleOutline,
   mdiCheck,
   mdiClose,
   mdiContentCopy,
@@ -35,14 +34,12 @@ const noteLeadHiddenTitleClass = "flatnotes-note-hidden-title";
 const noteLeadSourceHiddenClass = "flatnotes-note-lead-source-hidden";
 const bottomTagsClass = "flatnotes-bottom-tags";
 const bottomTagChipClass = "flatnotes-bottom-tag-chip";
-const tagAssistantHintClass = "flatnotes-tag-assistant-hint";
 const taskCheckboxClass = "flatnotes-task-checkbox";
 const taskCheckboxSavingClass = "flatnotes-task-checkbox-saving";
 const resetDelayMs = 1600;
 const maxInlineLatexLength = 500;
 const maxLeadSearchElements = 18;
 const maxLeadAbstractItems = 5;
-const categoryTags = new Set(["private", "work", "infra"]);
 const abstractHeadingTexts = new Set([
   "abstract",
   "kurzantwort",
@@ -955,20 +952,6 @@ function createBottomTagChip(tag) {
   return chip;
 }
 
-function createCategoryHint(hasTags) {
-  const hint = document.createElement("div");
-  hint.className = tagAssistantHintClass;
-  hint.append(createIcon(mdiAlertCircleOutline));
-
-  const text = document.createElement("span");
-  text.textContent = hasTags
-    ? "No main tag yet. Add #private, #work, or #infra at the bottom."
-    : "No bottom tags yet. Add #private, #work, or #infra at the bottom.";
-  hint.append(text);
-
-  return hint;
-}
-
 function findBottomTagElements(contentRoot) {
   const tagElements = [];
   const children = [...contentRoot.children];
@@ -1002,7 +985,7 @@ export function enhanceBottomTags(rootElement) {
     : null;
   if (
     !contentRoot ||
-    contentRoot.querySelector(`.${bottomTagsClass}, .${tagAssistantHintClass}`)
+    contentRoot.querySelector(`.${bottomTagsClass}`)
   ) {
     return;
   }
@@ -1013,10 +996,8 @@ export function enhanceBottomTags(rootElement) {
       tagElements.flatMap((element) => getTagsFromText(element.textContent)),
     ),
   ];
-  const hasCategoryTag = tags.some((tag) => categoryTags.has(tag));
 
   if (tags.length === 0) {
-    contentRoot.append(createCategoryHint(false));
     return;
   }
 
@@ -1028,10 +1009,6 @@ export function enhanceBottomTags(rootElement) {
   chipRow.className = "flatnotes-bottom-tags-row";
   tags.forEach((tag) => chipRow.append(createBottomTagChip(tag)));
   wrapper.append(chipRow);
-
-  if (!hasCategoryTag) {
-    wrapper.append(createCategoryHint(true));
-  }
 
   const previousElement = tagElements[0].previousElementSibling;
   tagElements[0].replaceWith(wrapper);

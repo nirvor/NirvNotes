@@ -43,9 +43,7 @@
     class="flatnotes-note-shell flex h-full min-w-0 max-w-full flex-col"
   >
     <!-- Header -->
-    <div
-      class="flex min-w-0 max-w-full flex-col-reverse md:flex-row md:items-baseline"
-    >
+    <div class="min-w-0 max-w-full">
       <!-- Title -->
       <div class="min-w-0 max-w-full grow truncate text-2xl leading-[1.35em]">
         <span v-show="!editMode" :title="note.title">{{ note.title }}</span>
@@ -54,39 +52,6 @@
           v-model.trim="newTitle"
           class="w-full bg-theme-background outline-none"
           placeholder="Title"
-        />
-      </div>
-
-      <!-- Buttons -->
-      <div class="flex shrink-0 self-end md:self-baseline print:hidden">
-        <!-- Delete Button -->
-        <CustomButton
-          v-show="canModify && !isNewNote"
-          label="Delete"
-          :iconPath="mdilDelete"
-          @click="deleteHandler"
-        />
-        <!-- Save Button -->
-        <CustomButton
-          v-show="editMode"
-          label="Save"
-          :iconPath="mdilContentSave"
-          @click="saveHandler((close = false))"
-          class="relative ml-1"
-        >
-          <!-- Unsaved Changes Indicator -->
-          <div
-            v-show="unsavedChanges"
-            class="absolute right-1 h-1.5 w-1.5 rounded-full bg-theme-brand"
-          ></div>
-        </CustomButton>
-        <!-- Edit Toggle -->
-        <Toggle
-          v-if="canModify"
-          label="Edit"
-          :isOn="editMode"
-          class="ml-1"
-          @click="toggleEditModeHandler"
         />
       </div>
     </div>
@@ -160,7 +125,15 @@ import { mdiNoteOffOutline } from "@mdi/js";
 import { mdilContentSave, mdilDelete } from "@mdi/light-js";
 import Mousetrap from "mousetrap";
 import { useToast } from "primevue/usetoast";
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+  watchEffect,
+} from "vue";
 import { useRouter } from "vue-router";
 
 import {
@@ -173,11 +146,9 @@ import {
 } from "../api.js";
 import { Note } from "../classes.js";
 import ConfirmModal from "../components/ConfirmModal.vue";
-import CustomButton from "../components/CustomButton.vue";
 import HtmlEditor from "../components/html/HtmlEditor.vue";
 import HtmlViewer from "../components/html/HtmlViewer.vue";
 import LoadingIndicator from "../components/LoadingIndicator.vue";
-import Toggle from "../components/Toggle.vue";
 import ToastEditor from "../components/toastui/ToastEditor.vue";
 import ToastViewer from "../components/toastui/ToastViewer.vue";
 import WorkNoteEditor from "../components/work/WorkNoteEditor.vue";
@@ -759,6 +730,32 @@ function setNewNoteKind(kind) {
   editorKey.value += 1;
 }
 
+function updateNoteActions() {
+  globalStore.setNoteActions([
+    {
+      key: "delete",
+      label: "Delete",
+      iconPath: mdilDelete,
+      visible: canModify.value && !isNewNote.value && Boolean(note.value.title),
+      handler: deleteHandler,
+    },
+    {
+      key: "save",
+      label: "Save",
+      iconPath: mdilContentSave,
+      visible: editMode.value,
+      handler: () => saveHandler(false),
+      unsaved: unsavedChanges.value,
+    },
+    {
+      key: "edit",
+      label: editMode.value ? "Done" : "Edit",
+      visible: canModify.value,
+      handler: toggleEditModeHandler,
+    },
+  ]);
+}
+
 function isContentChanged() {
   return (
     newTitle.value != note.value.title ||
@@ -779,8 +776,10 @@ function getEditorContent() {
   return contentEditor.value.getContent(newTitle.value || note.value.title);
 }
 
+watchEffect(updateNoteActions);
 watch(() => props.title, init);
 onMounted(init);
+onUnmounted(() => globalStore.clearNoteActions());
 </script>
 
 <style scoped>

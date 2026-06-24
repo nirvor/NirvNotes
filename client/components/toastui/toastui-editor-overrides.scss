@@ -1151,33 +1151,9 @@ body.flatnotes-media-lightbox-open {
   outline-offset: 2px;
 }
 
-.toastui-editor-contents .flatnotes-tag-assistant-hint {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin-top: 0.65rem;
-  color: rgb(var(--theme-text-very-muted));
-  font-size: 0.78rem;
-  line-height: 1.35;
-}
-
-.toastui-editor-contents > .flatnotes-tag-assistant-hint {
-  margin-top: 1.5rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid rgb(var(--theme-border));
-}
-
-.toastui-editor-contents .flatnotes-tag-assistant-hint svg {
-  flex: 0 0 auto;
-  width: 0.9rem;
-  height: 0.9rem;
-  fill: currentColor;
-}
-
 @media print {
   .flatnotes-code-copy-button,
-  .flatnotes-media-lightbox,
-  .toastui-editor-contents .flatnotes-tag-assistant-hint {
+  .flatnotes-media-lightbox {
     display: none;
   }
 }
