@@ -3,7 +3,7 @@
     <!-- Input -->
     <div
       class="flex w-full rounded-md border border-theme-border bg-theme-background dark:bg-theme-background-elevated"
-      :class="{ 'px-3 py-2': !large, 'px-5 py-4': large }"
+      :class="{ 'px-3 py-2': !large, 'px-4 py-2.5': large }"
     >
       <IconLabel :iconPath="mdilMagnify" class="mr-2" />
       <input
@@ -27,7 +27,7 @@
     <!-- Tag Menu -->
     <div
       v-if="tagMenuVisible"
-      class="absolute z-10 mt-2 max-h-64 w-full overflow-scroll rounded-md border border-theme-border bg-theme-background p-1"
+      class="absolute z-10 mt-1.5 max-h-56 w-full overflow-scroll rounded-md border border-theme-border bg-theme-background p-1"
     >
       <p
         v-for="(tag, index) in tagMatches"
@@ -45,17 +45,17 @@
     <!-- Empty Search Tag Cloud -->
     <div
       v-if="tagCloudVisible"
-      class="mt-2 w-full rounded-md border border-theme-border bg-theme-background p-3 dark:bg-theme-background-elevated"
+      class="mt-1.5 w-full rounded-md border border-theme-border bg-theme-background p-2 dark:bg-theme-background-elevated"
     >
-      <p class="mb-2 text-xs font-bold uppercase text-theme-text-very-muted">
+      <p class="mb-1.5 text-[0.68rem] font-bold uppercase text-theme-text-very-muted">
         Top Tags
       </p>
-      <div class="flex flex-wrap gap-2">
+      <div class="flex flex-wrap gap-1.5">
         <button
           v-for="tag in topTags"
           :key="tag.name"
           type="button"
-          class="rounded-full border border-theme-border bg-theme-background px-2.5 py-1 text-sm text-theme-text hover:border-theme-brand hover:text-theme-brand dark:bg-theme-background"
+          class="rounded-full border border-theme-border bg-theme-background px-2 py-0.5 text-xs text-theme-text hover:border-theme-brand hover:text-theme-brand dark:bg-theme-background"
           @click="tagCloudChosen(tag.name)"
           @mousedown.prevent
         >

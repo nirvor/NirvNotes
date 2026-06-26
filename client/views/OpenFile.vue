@@ -1,11 +1,11 @@
 <template>
   <section class="flatnotes-open-file min-w-0 max-w-full">
-    <div class="mb-5 flex min-w-0 flex-col gap-3 md:flex-row md:items-end md:justify-between">
+    <div class="mb-3 flex min-w-0 flex-col gap-2 md:flex-row md:items-end md:justify-between">
       <div class="min-w-0">
-        <p class="mb-1 text-xs font-bold uppercase text-theme-text-very-muted">
+        <p class="mb-1 text-[0.68rem] font-bold uppercase text-theme-text-very-muted">
           External File
         </p>
-        <h1 class="truncate text-3xl leading-tight">
+        <h1 class="truncate text-2xl leading-tight md:text-3xl">
           {{ activeFile ? activeFile.name : "Open a local file" }}
         </h1>
       </div>
@@ -28,6 +28,7 @@
         <CustomButton
           label="Choose"
           :iconPath="mdiFolderOpenOutline"
+          iconSize="1rem"
           @click="chooseFile"
         />
       </div>
@@ -42,26 +43,31 @@
       @change="fileInputChanged"
     />
 
-    <div
-      v-if="statusMessage"
-      class="mb-4 rounded-md border border-theme-border bg-theme-background-elevated px-3 py-2 text-theme-text-muted"
-    >
-      <IconLabel
-        :iconPath="statusIcon"
-        class="mr-2 inline-flex"
-      />
-      <span>{{ statusMessage }}</span>
+    <div v-if="statusMessage || activeFile" class="flatnotes-open-file-strip">
+      <span
+        v-if="statusMessage"
+        class="flatnotes-open-file-status"
+        :class="{ 'flatnotes-open-file-status-error': statusTone === 'error' }"
+      >
+        <SvgIcon type="mdi" :path="statusIcon" size="0.88rem" />
+        {{ statusMessage }}
+      </span>
+      <span
+        v-for="item in metadataItems"
+        :key="item.label"
+        class="flatnotes-open-file-meta"
+      >
+        <span>{{ item.label }}</span>
+        <strong>{{ item.value }}</strong>
+      </span>
     </div>
 
-    <div
-      v-if="files.length > 1"
-      class="mb-4 flex flex-wrap gap-2 print:hidden"
-    >
+    <div v-if="files.length > 1" class="mb-3 flex flex-wrap gap-1.5 print:hidden">
       <button
         v-for="file in files"
         :key="file.key"
         type="button"
-        class="rounded-full border border-theme-border px-3 py-1 text-sm hover:border-theme-brand hover:text-theme-brand"
+        class="rounded-full border border-theme-border px-2 py-0.5 text-xs hover:border-theme-brand hover:text-theme-brand"
         :class="{
           'border-theme-brand text-theme-brand': activeFile?.key === file.key,
         }"
@@ -69,30 +75,6 @@
       >
         {{ file.name }}
       </button>
-    </div>
-
-    <div
-      v-if="activeFile"
-      class="mb-4 grid gap-2 text-sm text-theme-text-muted md:grid-cols-3"
-    >
-      <div class="rounded-md border border-theme-border bg-theme-background-elevated px-3 py-2">
-        <span class="block text-xs font-bold uppercase text-theme-text-very-muted">
-          Type
-        </span>
-        {{ activeFile.extension || "text" }}
-      </div>
-      <div class="rounded-md border border-theme-border bg-theme-background-elevated px-3 py-2">
-        <span class="block text-xs font-bold uppercase text-theme-text-very-muted">
-          Size
-        </span>
-        {{ formatBytes(activeFile.size) }}
-      </div>
-      <div class="rounded-md border border-theme-border bg-theme-background-elevated px-3 py-2">
-        <span class="block text-xs font-bold uppercase text-theme-text-very-muted">
-          Preview
-        </span>
-        {{ activeFile.previewMode }}
-      </div>
     </div>
 
     <ToastViewer
@@ -105,12 +87,12 @@
 
     <div
       v-if="!activeFile"
-      class="rounded-md border border-dashed border-theme-border px-4 py-8 text-center text-theme-text-muted"
+      class="rounded-md border border-dashed border-theme-border px-3 py-4 text-center text-sm text-theme-text-muted"
     >
       <IconLabel
         :iconPath="mdiFileDocumentOutline"
-        iconSize="2rem"
-        class="mb-3 justify-center"
+        iconSize="1.35rem"
+        class="mb-2 justify-center"
       />
       <p>
         Open a .md, .txt, .cfg, or .ini file through Windows, or choose one here.
@@ -155,6 +137,17 @@ const statusTone = ref("info");
 const activeFile = computed(
   () => files.value.find((file) => file.key === activeKey.value) || null,
 );
+const metadataItems = computed(() => {
+  if (!activeFile.value) {
+    return [];
+  }
+
+  return [
+    { label: "type", value: activeFile.value.extension || "text" },
+    { label: "size", value: formatBytes(activeFile.value.size) },
+    { label: "preview", value: activeFile.value.previewMode },
+  ];
+});
 const statusIcon = computed(() =>
   statusTone.value === "error" ? mdiAlertCircleOutline : mdiCheckCircleOutline,
 );
@@ -309,12 +302,63 @@ function showStatus(message, tone = "info") {
   margin-inline: auto;
 }
 
+.flatnotes-open-file-strip {
+  display: flex;
+  min-height: 1.85rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.85rem;
+  border: 1px solid rgb(var(--theme-border));
+  border-radius: 6px;
+  padding: 0.22rem 0.28rem;
+  color: rgb(var(--theme-text-muted));
+  background-color: rgb(var(--theme-background-elevated));
+}
+
+.flatnotes-open-file-status,
+.flatnotes-open-file-meta {
+  display: inline-flex;
+  min-height: 1.28rem;
+  align-items: center;
+  gap: 0.28rem;
+  border-radius: 999px;
+  padding: 0 0.44rem;
+  line-height: 1;
+}
+
+.flatnotes-open-file-status {
+  color: rgb(var(--theme-text));
+}
+
+.flatnotes-open-file-status-error {
+  color: rgb(var(--theme-danger));
+}
+
+.flatnotes-open-file-meta {
+  border: 1px solid rgb(var(--theme-border));
+  background-color: rgb(var(--theme-background));
+  font-size: 0.78rem;
+}
+
+.flatnotes-open-file-meta span {
+  color: rgb(var(--theme-text-very-muted));
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.flatnotes-open-file-meta strong {
+  color: rgb(var(--theme-text));
+  font-weight: 600;
+}
+
 .flatnotes-open-file-icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  min-height: 2rem;
+  width: 1.75rem;
+  min-height: 1.75rem;
   border: 1px solid rgb(var(--theme-border));
   border-radius: 6px;
   color: rgb(var(--theme-text));
@@ -327,5 +371,12 @@ function showStatus(message, tone = "info") {
   border-color: rgb(var(--theme-brand));
   color: rgb(var(--theme-brand));
   background-color: rgb(var(--theme-background-elevated));
+}
+
+@media (max-width: 640px) and (pointer: coarse), (max-width: 640px) and (hover: none) {
+  .flatnotes-open-file-icon-button {
+    width: 2rem;
+    min-height: 2rem;
+  }
 }
 </style>
