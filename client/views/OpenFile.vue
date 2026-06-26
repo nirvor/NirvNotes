@@ -211,7 +211,7 @@ async function fileToPreview(file) {
   const extension = getExtension(file.name);
   const isMarkdown = extension === "md" || file.type === "text/markdown";
   const previewMarkdown = isMarkdown
-    ? content
+    ? compactLeadingMarkdownMetadata(content)
     : fencedCode(content, codeLanguageForExtension(extension));
 
   return {
@@ -231,6 +231,92 @@ async function fileToPreview(file) {
 function getExtension(filename = "") {
   const match = filename.toLowerCase().match(/\.([^.]+)$/);
   return match ? match[1] : "";
+}
+
+function escapeHtml(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function stripInlineMarkdown(value = "") {
+  return String(value)
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .trim();
+}
+
+function normalizeMetadataKey(key = "") {
+  return key.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function compactMetadataValue(key, value) {
+  const normalizedKey = normalizeMetadataKey(key);
+  const cleaned = stripInlineMarkdown(value);
+  if (!cleaned || normalizedKey === "original writer") {
+    return "";
+  }
+
+  if (normalizedKey === "domain") {
+    return cleaned;
+  }
+
+  if (normalizedKey === "topic / subdomain" || normalizedKey === "topic/subdomain") {
+    return cleaned;
+  }
+
+  if (normalizedKey === "difficulty level") {
+    return `difficulty ${cleaned}`;
+  }
+
+  if (normalizedKey === "tool use") {
+    return `tools ${cleaned}`;
+  }
+
+  return "";
+}
+
+function compactLeadingMarkdownMetadata(markdown = "") {
+  const normalized = String(markdown).replace(/\r\n?/g, "\n");
+  const lines = normalized.split("\n");
+  const firstHeadingIndex = lines.findIndex((line) => /^#{1,6}\s+/.test(line));
+  if (firstHeadingIndex <= 0) {
+    return markdown;
+  }
+
+  const leadingLines = lines.slice(0, firstHeadingIndex);
+  const fieldPattern = /^\s*(?:[-*]\s+)?([^:\n]{2,48}):\s*(.+?)\s*$/;
+  const fields = [];
+
+  for (const line of leadingLines) {
+    if (!line.trim()) {
+      continue;
+    }
+
+    const match = line.match(fieldPattern);
+    if (!match) {
+      return markdown;
+    }
+
+    fields.push({ key: match[1], value: match[2] });
+  }
+
+  if (!fields.length) {
+    return markdown;
+  }
+
+  const metaValues = fields
+    .map((field) => compactMetadataValue(field.key, field.value))
+    .filter(Boolean);
+  const rest = lines.slice(firstHeadingIndex).join("\n").trimStart();
+  if (!metaValues.length) {
+    return rest;
+  }
+
+  const metaLine = metaValues.map(escapeHtml).join(" | ");
+  return `<p class="flatnotes-external-meta-line"><strong>Meta</strong> ${metaLine}</p>\n\n${rest}`;
 }
 
 function fencedCode(content = "", language = "") {
@@ -389,6 +475,25 @@ function showStatus(message, tone = "info") {
   border-color: rgb(var(--theme-brand));
   color: rgb(var(--theme-brand));
   background-color: rgb(var(--theme-background-elevated));
+}
+
+:deep(.flatnotes-external-meta-line) {
+  max-width: 100%;
+  margin: 0 0 0.7rem 0 !important;
+  color: rgb(var(--theme-text-muted));
+  font-size: 0.8rem;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:deep(.flatnotes-external-meta-line strong) {
+  color: rgb(var(--theme-text-very-muted));
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
 @media (max-width: 640px) and (pointer: coarse), (max-width: 640px) and (hover: none) {
