@@ -1,8 +1,8 @@
 {
-  "name": "flatnotes",
+  "name": "nirvnotes",
   "version": "5.5.4",
   "type": "module",
-  "description": "A database-less note taking web app that utilises a flat folder of markdown files for storage.",
+  "description": "An HTML-first, flat-folder note system for clean, media-rich, LLM-friendly personal knowledge work.",
   "main": "client/index.html",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",

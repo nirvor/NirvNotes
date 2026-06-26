@@ -687,7 +687,13 @@ function loadDefaultEditorMode() {
 }
 
 function loadNewNoteKind() {
-  return localStorage.getItem("flatnotesNewNoteKind") || "work";
+  const key = "nirvNotesNewNoteKind";
+  const legacyKey = "flatnotesNewNoteKind";
+  const kind = localStorage.getItem(key) || localStorage.getItem(legacyKey);
+  if (kind && !localStorage.getItem(key)) {
+    localStorage.setItem(key, kind);
+  }
+  return kind || "work";
 }
 
 function currentNewEditorContentLooksEdited() {
@@ -720,7 +726,7 @@ function setNewNoteKind(kind) {
   }
 
   editorKind.value = kind;
-  localStorage.setItem("flatnotesNewNoteKind", kind);
+  localStorage.setItem("nirvNotesNewNoteKind", kind);
   note.value.content =
     kind === "work"
       ? buildWorkNoteHtml(newTitle.value || "Untitled", "")

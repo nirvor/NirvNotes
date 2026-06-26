@@ -1,6 +1,6 @@
 {
-  "name": "flatnotes",
-  "short_name": "flatnotes",
+  "name": "NirvNotes",
+  "short_name": "NirvNotes",
   "scope": "/",
   "start_url": "/",
   "launch_handler": {

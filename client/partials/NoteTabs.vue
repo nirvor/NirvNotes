@@ -133,13 +133,15 @@ import { params, searchSortOptions } from "../constants.js";
 
 const maxOpenTabs = 7;
 const maxRecentNotes = 14;
-const openTabsKey = "flatnotesOpenTabs";
-const recentNotesKey = "flatnotesRecentNotes";
+const openTabsKey = "nirvNotesOpenTabs";
+const recentNotesKey = "nirvNotesRecentNotes";
+const legacyOpenTabsKey = "flatnotesOpenTabs";
+const legacyRecentNotesKey = "flatnotesRecentNotes";
 
 const route = useRoute();
 const router = useRouter();
-const openTabs = ref(loadTitles(openTabsKey));
-const recentTitles = ref(loadTitles(recentNotesKey));
+const openTabs = ref(loadTitles(openTabsKey, legacyOpenTabsKey));
+const recentTitles = ref(loadTitles(recentNotesKey, legacyRecentNotesKey));
 const serverRecentTitles = ref([]);
 const drawerVisible = ref(false);
 let edgeGesture = null;
@@ -164,14 +166,23 @@ const recentOptions = computed(() =>
   ),
 );
 
-function loadTitles(key) {
+function loadTitles(key, legacyKey = null) {
   try {
-    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+    const storedValue = localStorage.getItem(key) || (
+      legacyKey ? localStorage.getItem(legacyKey) : null
+    );
+    const parsed = JSON.parse(storedValue || "[]");
     if (!Array.isArray(parsed)) {
       return [];
     }
 
-    return uniqueTitles(parsed.filter((title) => typeof title === "string"));
+    const titles = uniqueTitles(
+      parsed.filter((title) => typeof title === "string"),
+    );
+    if (titles.length && !localStorage.getItem(key)) {
+      saveTitles(key, titles);
+    }
+    return titles;
   } catch {
     return [];
   }
