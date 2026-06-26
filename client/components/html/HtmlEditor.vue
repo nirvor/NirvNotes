@@ -213,12 +213,12 @@ defineExpose({ getContent, isWysiwygMode });
 
 .flatnotes-html-editor-toolbar {
   display: flex;
-  min-height: 2.7rem;
+  min-height: 1.82rem;
   align-items: center;
   justify-content: flex-start;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  padding: 0.45rem 0.75rem;
+  gap: 0.28rem;
+  padding: 0.16rem 0.5rem;
   border-bottom: 1px solid rgb(var(--theme-border));
   color: rgb(var(--theme-text-muted));
   background-color: rgb(var(--theme-background-elevated));
@@ -229,7 +229,7 @@ defineExpose({ getContent, isWysiwygMode });
 .flatnotes-html-editor-toolbar-group {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.32rem;
   min-width: 0;
 }
 
@@ -239,13 +239,13 @@ defineExpose({ getContent, isWysiwygMode });
 
 .flatnotes-html-editor-select,
 .flatnotes-html-editor-toolbar button {
-  min-height: 2rem;
+  min-height: 1.42rem;
   border: 1px solid rgb(var(--theme-border));
-  border-radius: 6px;
-  padding: 0 0.65rem;
+  border-radius: 5px;
+  padding: 0 0.45rem;
   color: rgb(var(--theme-text));
   background-color: rgb(var(--theme-background));
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   touch-action: manipulation;
 }
 
@@ -266,7 +266,7 @@ defineExpose({ getContent, isWysiwygMode });
   flex: 0 0 auto;
   resize: none;
   overflow-y: hidden;
-  padding: 0.85rem;
+  padding: 0.68rem 0.82rem;
   border: 0;
   color: rgb(var(--theme-text));
   background-color: rgb(var(--theme-background));
@@ -275,5 +275,23 @@ defineExpose({ getContent, isWysiwygMode });
   line-height: 1.45;
   outline: none;
   tab-size: 2;
+}
+
+@media (max-width: 640px) and (pointer: coarse), (max-width: 640px) and (hover: none) {
+  .flatnotes-html-editor-toolbar {
+    min-height: 2.35rem;
+    gap: 0.4rem;
+    padding: 0.26rem;
+  }
+
+  .flatnotes-html-editor-toolbar-group {
+    gap: 0.45rem;
+  }
+
+  .flatnotes-html-editor-select,
+  .flatnotes-html-editor-toolbar button {
+    min-height: 2rem;
+    padding: 0 0.65rem;
+  }
 }
 </style>

@@ -13,7 +13,7 @@
         aria-label="Insert code block"
         @click="insertCodeBlock"
       >
-        <SvgIcon type="mdi" :path="mdiCodeTags" size="0.9rem" />
+        <SvgIcon type="mdi" :path="mdiCodeTags" size="0.84rem" />
       </button>
       <button
         type="button"
@@ -22,7 +22,7 @@
         aria-label="Insert checklist item"
         @click="insertChecklist"
       >
-        <SvgIcon type="mdi" :path="mdiFormatListChecks" size="0.9rem" />
+        <SvgIcon type="mdi" :path="mdiFormatListChecks" size="0.84rem" />
       </button>
       <button
         type="button"
@@ -36,7 +36,7 @@
         <SvgIcon
           type="mdi"
           :path="previewVisible ? mdiEyeOffOutline : mdiEyeOutline"
-          size="0.9rem"
+          size="0.84rem"
         />
       </button>
       <button
@@ -50,7 +50,7 @@
         <SvgIcon
           type="mdi"
           :path="copied ? mdiCheck : mdiContentCopy"
-          size="0.9rem"
+          size="0.84rem"
         />
       </button>
     </div>
@@ -389,11 +389,11 @@ defineExpose({ getContent, getMarkdown });
 
 .flatnotes-work-editor-toolbar {
   display: flex;
-  min-height: 1.72rem;
+  min-height: 1.42rem;
   align-items: center;
   justify-content: flex-start;
-  gap: 0.18rem;
-  padding: 0.12rem 0.22rem;
+  gap: 0.14rem;
+  padding: 0.06rem 0.2rem;
   border-bottom: 1px solid rgb(var(--theme-border));
   color: rgb(var(--theme-text-muted));
   background-color: rgb(var(--theme-background-elevated));
@@ -404,7 +404,7 @@ defineExpose({ getContent, getMarkdown });
   align-items: center;
   justify-content: center;
   width: 1.48rem;
-  height: 1.48rem;
+  height: 1.34rem;
   border: 1px solid rgb(var(--theme-border));
   border-radius: 5px;
   padding: 0;
@@ -430,7 +430,7 @@ defineExpose({ getContent, getMarkdown });
   flex: 0 0 auto;
   resize: none;
   overflow-y: hidden;
-  padding: 0.85rem;
+  padding: 0.68rem 0.82rem;
   border: 0;
   color: rgb(var(--theme-text));
   background-color: rgb(var(--theme-background));
@@ -447,7 +447,7 @@ defineExpose({ getContent, getMarkdown });
   background-color: rgb(var(--theme-background));
 }
 
-@media (max-width: 640px) {
+@media (max-width: 640px) and (pointer: coarse), (max-width: 640px) and (hover: none) {
   .flatnotes-work-editor-toolbar {
     gap: 0.22rem;
     min-height: 2.35rem;
