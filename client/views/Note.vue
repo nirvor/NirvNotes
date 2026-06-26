@@ -59,7 +59,11 @@
     <hr v-if="!editMode" class="my-2 border-theme-border" />
 
     <!-- Content -->
-    <div class="flatnotes-note-content min-w-0 max-w-full flex-1">
+    <div
+      class="flatnotes-note-content min-w-0 max-w-full flex-1"
+      @dblclick="noteContentDblClickHandler"
+      @pointerup="noteContentPointerUpHandler"
+    >
       <ToastViewer
         v-if="!editMode && !isHtmlFormat"
         :initialValue="note.content"
@@ -175,6 +179,7 @@ const isWorkNote = computed(
   () => isHtmlFormat.value && isWorkNoteHtml(note.value.content || ""),
 );
 let contentChangedTimeout = null;
+let lastContentTap = null;
 const contentEditor = ref();
 const editorKey = ref(0);
 const editMode = ref(false);
@@ -192,6 +197,8 @@ const router = useRouter();
 const newTitle = ref();
 const toast = useToast();
 const unsavedChanges = ref(false);
+const editDoubleTapDelayMs = 420;
+const editDoubleTapDistancePx = 28;
 
 function init() {
   // Return if we already have the note e.g. When we rename a note, the route prop would change but we’d already have the note.
@@ -262,6 +269,107 @@ function setEditMode() {
   }
   unsavedChanges.value = false;
   editMode.value = true;
+}
+
+function contentSelectionHasText() {
+  const selection = window.getSelection?.();
+  return Boolean(selection && !selection.isCollapsed && selection.toString());
+}
+
+function isIgnoredEditTriggerTarget(target) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  return Boolean(
+    target.closest(
+      [
+        "a",
+        "button",
+        "input",
+        "textarea",
+        "select",
+        "label",
+        "summary",
+        "[role='button']",
+        "pre",
+        "code",
+        ".flatnotes-code-block-wrapper",
+        ".flatnotes-bottom-tags",
+        ".flatnotes-media-button",
+        ".flatnotes-media-lightbox",
+        ".katex",
+      ].join(","),
+    ),
+  );
+}
+
+function canStartEditFromContent(event, { allowSelection = false } = {}) {
+  return (
+    !editMode.value &&
+    canModify.value &&
+    !isNewNote.value &&
+    !event.defaultPrevented &&
+    (event.button == null || event.button === 0) &&
+    (allowSelection || !contentSelectionHasText()) &&
+    !isIgnoredEditTriggerTarget(event.target)
+  );
+}
+
+function startEditFromContent(event, options = {}) {
+  if (!canStartEditFromContent(event, options)) {
+    return false;
+  }
+
+  event.preventDefault();
+  editHandler();
+  return true;
+}
+
+function noteContentDblClickHandler(event) {
+  lastContentTap = null;
+  startEditFromContent(event, { allowSelection: true });
+}
+
+function noteContentPointerUpHandler(event) {
+  if (!["touch", "pen"].includes(event.pointerType)) {
+    return;
+  }
+
+  if (!canStartEditFromContent(event)) {
+    lastContentTap = null;
+    return;
+  }
+
+  const now = window.performance?.now?.() || Date.now();
+  const nextTap = {
+    time: now,
+    x: event.clientX,
+    y: event.clientY,
+  };
+
+  const previousTap = lastContentTap;
+  lastContentTap = nextTap;
+  window.setTimeout(() => {
+    if (lastContentTap === nextTap) {
+      lastContentTap = null;
+    }
+  }, editDoubleTapDelayMs + 40);
+
+  if (!previousTap || now - previousTap.time > editDoubleTapDelayMs) {
+    return;
+  }
+
+  const distance = Math.hypot(
+    event.clientX - previousTap.x,
+    event.clientY - previousTap.y,
+  );
+  if (distance > editDoubleTapDistancePx) {
+    return;
+  }
+
+  lastContentTap = null;
+  startEditFromContent(event);
 }
 
 function getInitialEditorValue() {

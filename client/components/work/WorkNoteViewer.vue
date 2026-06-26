@@ -33,6 +33,7 @@ import SvgIcon from "@jamescoyle/vue-icon";
 import { mdiCheck, mdiContentCopy } from "@mdi/js";
 import { computed, ref } from "vue";
 
+import { writeMarkdownToClipboard } from "../../clipboard.js";
 import ToastViewer from "../toastui/ToastViewer.vue";
 import { extractWorkMarkdown } from "./workNote.js";
 
@@ -48,7 +49,7 @@ const markdown = computed(() => extractWorkMarkdown(props.initialValue || ""));
 
 async function copyMarkdown() {
   try {
-    await navigator.clipboard.writeText(markdown.value);
+    await writeMarkdownToClipboard(markdown.value);
     copied.value = true;
     setTimeout(() => {
       copied.value = false;

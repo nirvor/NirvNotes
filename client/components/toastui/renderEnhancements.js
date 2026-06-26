@@ -9,6 +9,8 @@ import {
 } from "@mdi/js";
 import katex from "katex";
 
+import { writePlainTextToClipboard } from "../../clipboard.js";
+
 const codeBlockWrapperClass = "flatnotes-code-block-wrapper";
 const codeCopyButtonClass = "flatnotes-code-copy-button";
 const copiedClass = "flatnotes-code-copy-button-copied";
@@ -169,39 +171,6 @@ function setButtonState(button, state) {
 
   button.setAttribute("aria-label", "Copy code");
   button.setAttribute("title", "Copy code");
-}
-
-function writeTextViaTextarea(text) {
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  textarea.style.pointerEvents = "none";
-  document.body.append(textarea);
-  textarea.select();
-
-  try {
-    if (!document.execCommand("copy")) {
-      throw new Error("Copy command was not accepted by the browser.");
-    }
-  } finally {
-    textarea.remove();
-  }
-}
-
-async function writeClipboardText(text) {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return;
-    } catch {
-      // Some browser contexts expose the Clipboard API but reject writes.
-      // The textarea path keeps the button useful instead of failing early.
-    }
-  }
-
-  writeTextViaTextarea(text);
 }
 
 function getBasePath() {
@@ -524,7 +493,7 @@ function createImageLightbox() {
 
     copyButton.disabled = true;
     try {
-      await writeClipboardText(url);
+      await writePlainTextToClipboard(url);
       copyButton.querySelector("span").textContent = "Copied";
     } catch {
       copyButton.querySelector("span").textContent = "Failed";
@@ -1041,7 +1010,7 @@ function decorateCodeBlock(preElement) {
   button.addEventListener("click", async () => {
     button.disabled = true;
     try {
-      await writeClipboardText(getCodeText(preElement));
+      await writePlainTextToClipboard(getCodeText(preElement));
       setButtonState(button, "copied");
     } catch {
       setButtonState(button, "failed");

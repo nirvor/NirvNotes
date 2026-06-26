@@ -13,7 +13,7 @@
         aria-label="Insert code block"
         @click="insertCodeBlock"
       >
-        <SvgIcon type="mdi" :path="mdiCodeTags" size="1.05rem" />
+        <SvgIcon type="mdi" :path="mdiCodeTags" size="0.9rem" />
       </button>
       <button
         type="button"
@@ -22,7 +22,7 @@
         aria-label="Insert checklist item"
         @click="insertChecklist"
       >
-        <SvgIcon type="mdi" :path="mdiFormatListChecks" size="1.05rem" />
+        <SvgIcon type="mdi" :path="mdiFormatListChecks" size="0.9rem" />
       </button>
       <button
         type="button"
@@ -36,7 +36,7 @@
         <SvgIcon
           type="mdi"
           :path="previewVisible ? mdiEyeOffOutline : mdiEyeOutline"
-          size="1.05rem"
+          size="0.9rem"
         />
       </button>
       <button
@@ -50,7 +50,7 @@
         <SvgIcon
           type="mdi"
           :path="copied ? mdiCheck : mdiContentCopy"
-          size="1.05rem"
+          size="0.9rem"
         />
       </button>
     </div>
@@ -91,6 +91,7 @@ import {
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import NoteKindSwitch from "../NoteKindSwitch.vue";
+import { writeMarkdownToClipboard } from "../../clipboard.js";
 import ToastViewer from "../toastui/ToastViewer.vue";
 import {
   buildWorkNoteHtml,
@@ -309,7 +310,7 @@ function normalizeEditorTags({ restoreSelection = true } = {}) {
 async function copyMarkdown() {
   try {
     const normalizedMarkdown = normalizeEditorTags();
-    await navigator.clipboard.writeText(normalizedMarkdown);
+    await writeMarkdownToClipboard(normalizedMarkdown);
     copied.value = true;
     setTimeout(() => {
       copied.value = false;
@@ -388,11 +389,11 @@ defineExpose({ getContent, getMarkdown });
 
 .flatnotes-work-editor-toolbar {
   display: flex;
-  min-height: 2.35rem;
+  min-height: 1.72rem;
   align-items: center;
   justify-content: flex-start;
-  gap: 0.25rem;
-  padding: 0.28rem 0.35rem;
+  gap: 0.18rem;
+  padding: 0.12rem 0.22rem;
   border-bottom: 1px solid rgb(var(--theme-border));
   color: rgb(var(--theme-text-muted));
   background-color: rgb(var(--theme-background-elevated));
@@ -402,10 +403,10 @@ defineExpose({ getContent, getMarkdown });
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.08rem;
-  height: 2.08rem;
+  width: 1.48rem;
+  height: 1.48rem;
   border: 1px solid rgb(var(--theme-border));
-  border-radius: 6px;
+  border-radius: 5px;
   padding: 0;
   color: rgb(var(--theme-text));
   background-color: rgb(var(--theme-background));
@@ -449,6 +450,7 @@ defineExpose({ getContent, getMarkdown });
 @media (max-width: 640px) {
   .flatnotes-work-editor-toolbar {
     gap: 0.22rem;
+    min-height: 2.35rem;
     padding: 0.26rem;
   }
 
