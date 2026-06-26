@@ -11,17 +11,24 @@
       </div>
 
       <div class="flex shrink-0 gap-2 print:hidden">
+        <button
+          v-if="activeFile"
+          type="button"
+          class="flatnotes-open-file-icon-button"
+          :title="copied ? 'Copied raw source' : 'Copy raw source'"
+          :aria-label="copied ? 'Copied raw source' : 'Copy raw source'"
+          @click="copyActiveFile"
+        >
+          <SvgIcon
+            type="mdi"
+            :path="copied ? mdiCheck : mdiContentCopy"
+            size="1rem"
+          />
+        </button>
         <CustomButton
           label="Choose"
           :iconPath="mdiFolderOpenOutline"
           @click="chooseFile"
-        />
-        <CustomButton
-          v-if="activeFile && canModify"
-          label="Import"
-          style="cta"
-          :iconPath="mdiImport"
-          @click="importActiveFile"
         />
       </div>
     </div>
@@ -107,44 +114,43 @@
       />
       <p>
         Open a .md, .txt, .cfg, or .ini file through Windows, or choose one here.
+        Nothing is saved into NirvNotes.
       </p>
     </div>
   </section>
 </template>
 
 <script setup>
+import SvgIcon from "@jamescoyle/vue-icon";
 import {
   mdiAlertCircleOutline,
+  mdiCheck,
   mdiCheckCircleOutline,
+  mdiContentCopy,
   mdiFileDocumentOutline,
   mdiFolderOpenOutline,
-  mdiImport,
 } from "@mdi/js";
-import { useToast } from "primevue/usetoast";
-import { computed, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, onMounted, ref, watch } from "vue";
 
-import { apiErrorHandler, createNote } from "../api.js";
+import {
+  writeMarkdownToClipboard,
+  writePlainTextToClipboard,
+} from "../clipboard.js";
 import CustomButton from "../components/CustomButton.vue";
 import IconLabel from "../components/IconLabel.vue";
 import ToastViewer from "../components/toastui/ToastViewer.vue";
-import { renderMarkdownToHtml } from "../components/work/workNote.js";
-import { authTypes } from "../constants.js";
-import { useGlobalStore } from "../globalStore.js";
-import { getToastOptions } from "../helpers.js";
+import {
+  externalFileLaunch,
+  supportsFileHandlingLaunchQueue,
+} from "../externalFiles.js";
 
-const canModify = computed(
-  () => globalStore.config.authType != authTypes.readOnly,
-);
+const copied = ref(false);
 const fileInput = ref();
 const files = ref([]);
 const activeKey = ref(null);
-const globalStore = useGlobalStore();
-const importInProgress = ref(false);
-const router = useRouter();
+const lastConsumedLaunchId = ref(null);
 const statusMessage = ref("");
 const statusTone = ref("info");
-const toast = useToast();
 
 const activeFile = computed(
   () => files.value.find((file) => file.key === activeKey.value) || null,
@@ -154,38 +160,14 @@ const statusIcon = computed(() =>
 );
 
 onMounted(() => {
-  if (supportsFileHandling()) {
-    window.launchQueue.setConsumer(async (launchParams) => {
-      const handles = launchParams.files || [];
-      if (!handles.length) {
-        return;
-      }
-
-      try {
-        const launchedFiles = [];
-        for (const handle of handles) {
-          launchedFiles.push(await handle.getFile());
-        }
-        await loadFiles(launchedFiles, "Opened from Windows.");
-      } catch (error) {
-        showStatus("Could not read the file from Windows.", "error");
-        console.error(error);
-      }
-    });
-  } else {
+  if (!supportsFileHandlingLaunchQueue()) {
     showStatus(
-      "This browser can preview files here, but Windows file handling needs an installed Chromium PWA.",
+      "This browser can preview files here, but Windows file opening needs the installed NirvNotes app.",
     );
   }
 });
 
-function supportsFileHandling() {
-  return (
-    "launchQueue" in window &&
-    "LaunchParams" in window &&
-    "files" in window.LaunchParams.prototype
-  );
-}
+watch(externalFileLaunch, consumeExternalLaunch, { immediate: true });
 
 function chooseFile() {
   fileInput.value?.click();
@@ -204,6 +186,7 @@ async function loadFiles(selectedFiles, message) {
 
   files.value = readableFiles;
   activeKey.value = readableFiles[0]?.key || null;
+  copied.value = false;
   if (readableFiles.length) {
     showStatus(message);
   }
@@ -212,10 +195,10 @@ async function loadFiles(selectedFiles, message) {
 async function fileToPreview(file) {
   const content = await file.text();
   const extension = getExtension(file.name);
-  const isConfig = extension === "cfg" || extension === "ini";
-  const previewMarkdown = isConfig
-    ? fencedCode(content, extension === "ini" ? "ini" : "")
-    : content;
+  const isMarkdown = extension === "md" || file.type === "text/markdown";
+  const previewMarkdown = isMarkdown
+    ? content
+    : fencedCode(content, codeLanguageForExtension(extension));
 
   return {
     key: `${file.name}-${file.size}-${file.lastModified}-${Math.random()
@@ -227,7 +210,7 @@ async function fileToPreview(file) {
     extension,
     content,
     previewMarkdown,
-    previewMode: isConfig ? "code block" : "markdown",
+    previewMode: isMarkdown ? "markdown" : "plain text",
     lastModified: file.lastModified,
   };
 }
@@ -243,37 +226,6 @@ function fencedCode(content = "", language = "") {
   return `${fence}${language}\n${safeContent}\n${fence}\n`;
 }
 
-async function importActiveFile() {
-  if (!activeFile.value || importInProgress.value) {
-    return;
-  }
-
-  importInProgress.value = true;
-  try {
-    const title = noteTitleForFile(activeFile.value);
-    const note = await createNoteWithFallbackTitle(activeFile.value, title);
-    toast.add(getToastOptions("File imported as note ✓", "Success", "success"));
-    router.push({ name: "note", params: { title: note.title } });
-  } catch (error) {
-    apiErrorHandler(error, toast);
-  } finally {
-    importInProgress.value = false;
-  }
-}
-
-async function createNoteWithFallbackTitle(file, title) {
-  try {
-    return await createNote(title, buildImportedFileHtml(file, title), "html");
-  } catch (error) {
-    if (error.response?.status !== 409) {
-      throw error;
-    }
-
-    const fallbackTitle = `${title} imported ${timestampSuffix()}`;
-    return createNote(fallbackTitle, buildImportedFileHtml(file, fallbackTitle), "html");
-  }
-}
-
 function noteTitleForFile(file) {
   const stem = file.name.replace(/\.[^.]+$/, "").trim() || "External file";
   return sanitizeTitle(stem);
@@ -287,52 +239,50 @@ function sanitizeTitle(value = "") {
   return title || "External file";
 }
 
-function timestampSuffix() {
-  return new Date()
-    .toISOString()
-    .replace(/[-:]/g, "")
-    .replace(/\..+$/, "")
-    .replace("T", "-");
+function codeLanguageForExtension(extension = "") {
+  if (extension === "ini") {
+    return "ini";
+  }
+
+  if (extension === "json") {
+    return "json";
+  }
+
+  return "";
 }
 
-function buildImportedFileHtml(file, title) {
-  const rendered = renderMarkdownToHtml(file.previewMarkdown);
-  const sourceFilename = escapeHtml(file.name);
-  const escapedTitle = escapeHtml(title);
+async function consumeExternalLaunch(launch) {
+  if (!launch || lastConsumedLaunchId.value === launch.id) {
+    return;
+  }
 
-  return `<!doctype html>
-<html lang="de">
-  <head>
-    <meta charset="utf-8">
-    <meta name="flatnotes-note-kind" content="research">
-    <title>${escapedTitle}</title>
-  </head>
-  <body>
-    <article class="flatnote flatnote-imported-file" data-flatnotes-note-kind="research">
-      <p class="flatnote-kicker">Imported File</p>
-      <h1>${escapedTitle}</h1>
-      <section class="flatnote-summary" data-flatnotes-component="summary">
-        <p>Imported from <code>${sourceFilename}</code>. Original text is preserved in the note source.</p>
-      </section>
-      <section class="flatnote-imported-file-body" data-flatnotes-component="external-file-body">
-${rendered}
-      </section>
-      <template data-flatnotes-external-source data-filename="${escapeAttribute(file.name)}">${escapeHtml(file.content)}</template>
-    </article>
-  </body>
-</html>`;
+  lastConsumedLaunchId.value = launch.id;
+  if (launch.files?.length) {
+    await loadFiles(launch.files, launch.message || "Opened from Windows.");
+    return;
+  }
+
+  showStatus(launch.message || "Could not open the file.", launch.tone || "error");
 }
 
-function escapeHtml(value = "") {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+async function copyActiveFile() {
+  if (!activeFile.value) {
+    return;
+  }
 
-function escapeAttribute(value = "") {
-  return escapeHtml(value).replace(/'/g, "&#39;");
+  const file = activeFile.value;
+  const isMarkdown = file.extension === "md" || file.type === "text/markdown";
+  if (isMarkdown) {
+    await writeMarkdownToClipboard(file.content);
+  } else {
+    await writePlainTextToClipboard(file.content);
+  }
+
+  copied.value = true;
+  showStatus("Copied raw source to clipboard.");
+  window.setTimeout(() => {
+    copied.value = false;
+  }, 1400);
 }
 
 function formatBytes(bytes = 0) {
@@ -357,5 +307,25 @@ function showStatus(message, tone = "info") {
 .flatnotes-open-file {
   width: min(100%, 68rem);
   margin-inline: auto;
+}
+
+.flatnotes-open-file-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  min-height: 2rem;
+  border: 1px solid rgb(var(--theme-border));
+  border-radius: 6px;
+  color: rgb(var(--theme-text));
+  background-color: rgb(var(--theme-background));
+  touch-action: manipulation;
+}
+
+.flatnotes-open-file-icon-button:hover,
+.flatnotes-open-file-icon-button:focus-visible {
+  border-color: rgb(var(--theme-brand));
+  color: rgb(var(--theme-brand));
+  background-color: rgb(var(--theme-background-elevated));
 }
 </style>

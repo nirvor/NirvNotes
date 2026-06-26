@@ -3,6 +3,12 @@ import PrimeVue from "primevue/config";
 import ToastService from "primevue/toastservice";
 import { createApp } from "vue";
 import { createPinia } from "pinia";
+import {
+  filesFromLaunchParams,
+  publishExternalFileLaunch,
+  publishExternalFileLaunchError,
+  supportsFileHandlingLaunchQueue,
+} from "./externalFiles.js";
 import { loadStoredToken } from "./tokenStorage.js";
 import router from "/router.js";
 
@@ -24,6 +30,24 @@ app.directive("focus", {
 loadStoredToken();
 
 app.mount("#app");
+
+if (supportsFileHandlingLaunchQueue()) {
+  window.launchQueue.setConsumer(async (launchParams) => {
+    try {
+      const files = await filesFromLaunchParams(launchParams);
+      if (!files.length) {
+        return;
+      }
+
+      publishExternalFileLaunch(files, "Opened from Windows.");
+      await router.push({ name: "openFile" }).catch(() => {});
+    } catch (error) {
+      publishExternalFileLaunchError("Could not read the file from Windows.");
+      await router.push({ name: "openFile" }).catch(() => {});
+      console.error(error);
+    }
+  });
+}
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {

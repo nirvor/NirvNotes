@@ -252,3 +252,4 @@ data/
 # Local QA artifacts
 .playwright-cli/
 /output/playwright/
+/work/
