@@ -5,6 +5,10 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;");
 }
 
+function escapeAttribute(value) {
+  return escapeHtml(value).replace(/"/g, "&quot;");
+}
+
 function selectedOrFallback(selection, fallback) {
   const trimmed = String(selection || "").trim();
   return trimmed ? escapeHtml(trimmed) : fallback;
@@ -163,8 +167,8 @@ export function getHtmlSnippet(id, selection = "") {
 }
 
 export function createMediaFigureSnippet(url, altText, metadata = {}) {
-  const safeUrl = escapeHtml(url);
-  const safeAlt = escapeHtml(altText || metadata.originalFilename || "Image");
+  const safeUrl = escapeAttribute(url);
+  const safeAlt = escapeAttribute(altText || metadata.originalFilename || "Image");
   const safeCaption = escapeHtml(altText || metadata.originalFilename || "");
   const width = metadata.width ? ` width="${Number(metadata.width)}"` : "";
   const height = metadata.height ? ` height="${Number(metadata.height)}"` : "";
@@ -180,5 +184,26 @@ export function createMediaFigureSnippet(url, altText, metadata = {}) {
   <img src="${safeUrl}" alt="${safeAlt}" loading="lazy" decoding="async"${width}${height}>
   <figcaption>${safeCaption}</figcaption>
 </figure>
+`;
+}
+
+export function createLinkCardSnippet(url, label = "Link") {
+  const safeUrl = escapeAttribute(url);
+  const safeLabel = escapeHtml(label || "Link");
+
+  return `
+<aside class="flatnote-link-card" data-flatnotes-component="link">
+  <a href="${safeUrl}" rel="noopener noreferrer">${safeLabel}</a>
+  <span>${safeUrl}</span>
+</aside>
+`;
+}
+
+export function createCodeBlockSnippet(text, language = "text") {
+  const safeLanguage = escapeAttribute(language || "text");
+  const safeCode = escapeHtml(String(text || "").replace(/\r\n?/g, "\n").trimEnd());
+
+  return `
+<pre data-flatnotes-component="code"><code class="language-${safeLanguage}">${safeCode}</code></pre>
 `;
 }

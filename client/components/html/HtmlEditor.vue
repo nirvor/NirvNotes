@@ -54,10 +54,16 @@ import { nextTick, onMounted, ref } from "vue";
 
 import NoteKindSwitch from "../NoteKindSwitch.vue";
 import {
+  createCodeBlockSnippet,
+  createLinkCardSnippet,
   createMediaFigureSnippet,
   getHtmlSnippet,
   htmlComponentSnippets,
 } from "./componentKit.js";
+import {
+  classifyPastedText,
+  getClipboardImageFile,
+} from "../paste/mediaPaste.js";
 
 const props = defineProps({
   currentKind: {
@@ -159,14 +165,40 @@ function getImageFiles(dataTransfer) {
   );
 }
 
+function insertClassifiedPaste(classification) {
+  if (classification.type === "image-url") {
+    insertAtCursor(createMediaFigureSnippet(classification.url, "Image"));
+    return true;
+  }
+
+  if (classification.type === "url") {
+    insertAtCursor(createLinkCardSnippet(classification.url, classification.label));
+    return true;
+  }
+
+  if (classification.type === "code") {
+    insertAtCursor(
+      createCodeBlockSnippet(classification.text, classification.language),
+    );
+    return true;
+  }
+
+  return false;
+}
+
 function pasteHandler(event) {
-  const [file] = getImageFiles(event.clipboardData);
-  if (!file) {
+  const file = getClipboardImageFile(event.clipboardData);
+  if (file) {
+    event.preventDefault();
+    insertImageFile(file);
     return;
   }
 
-  event.preventDefault();
-  insertImageFile(file);
+  const text = event.clipboardData?.getData("text/plain") || "";
+  const classification = classifyPastedText(text);
+  if (insertClassifiedPaste(classification)) {
+    event.preventDefault();
+  }
 }
 
 function dropHandler(event) {

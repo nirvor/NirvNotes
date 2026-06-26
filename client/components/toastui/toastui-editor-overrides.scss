@@ -653,6 +653,37 @@
   background-color: rgb(var(--theme-background-elevated));
 }
 
+.toastui-editor-contents .flatnote-link-card {
+  display: grid;
+  gap: 0.16rem;
+  margin: 0.95rem 0;
+  border: 1px solid rgb(var(--theme-border));
+  border-radius: 6px;
+  padding: 0.62rem 0.72rem;
+  background-color: rgb(var(--theme-background-elevated) / 0.48);
+}
+
+.toastui-editor-contents .flatnote-link-card a {
+  color: rgb(var(--theme-heading));
+  font-size: 0.95rem;
+  font-weight: 650;
+  line-height: 1.25;
+  text-decoration: none;
+}
+
+.toastui-editor-contents .flatnote-link-card a:hover,
+.toastui-editor-contents .flatnote-link-card a:focus-visible {
+  color: rgb(var(--theme-brand));
+}
+
+.toastui-editor-contents .flatnote-link-card span {
+  color: rgb(var(--theme-text-muted));
+  font-family: Consolas, "Lucida Console", Monaco, "Andale Mono", monospace;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 640px) {
   .toastui-editor-contents .flatnote-hero img,
   .toastui-editor-contents .flatnote-banner img,

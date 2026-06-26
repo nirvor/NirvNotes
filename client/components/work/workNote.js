@@ -163,6 +163,11 @@ function renderInlineMarkdown(value = "") {
 
   text = escapeHtml(text)
     .replace(
+      /!\[([^\]]*)\]\(([^)\s]+)\)/g,
+      (_, alt, src) =>
+        `<img src="${escapeAttribute(src)}" alt="${alt}" loading="lazy" decoding="async">`,
+    )
+    .replace(
       /\[([^\]]+)\]\(([^)\s]+)\)/g,
       (_, label, href) =>
         `<a href="${escapeAttribute(href)}" rel="noopener noreferrer">${label}</a>`,

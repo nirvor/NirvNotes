@@ -64,6 +64,7 @@
       spellcheck="false"
       @input="contentInputHandler"
       @keydown="keydownHandler"
+      @paste="pasteHandler"
     ></textarea>
 
     <div v-if="previewVisible" class="flatnotes-work-editor-preview">
@@ -92,6 +93,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 
 import NoteKindSwitch from "../NoteKindSwitch.vue";
 import { writeMarkdownToClipboard } from "../../clipboard.js";
+import {
+  classifyPastedText,
+  getClipboardImageFile,
+  markdownForPaste,
+  markdownImageSnippet,
+} from "../paste/mediaPaste.js";
 import ToastViewer from "../toastui/ToastViewer.vue";
 import {
   buildWorkNoteHtml,
@@ -106,6 +113,7 @@ const props = defineProps({
   },
   initialValue: String,
   noteTitle: String,
+  addImageBlobHook: Function,
   showKindSwitch: Boolean,
 });
 
@@ -167,6 +175,39 @@ function insertCodeBlock() {
 
 function insertChecklist() {
   insertAtCursor("\n- [ ] \n");
+}
+
+function selectedText() {
+  const { start, end } = selectedRange();
+  return markdown.value.slice(start, end);
+}
+
+function insertImageFile(file) {
+  if (!file || !props.addImageBlobHook) {
+    return false;
+  }
+
+  props.addImageBlobHook(file, (url, altText) => {
+    insertAtCursor(markdownImageSnippet(url, altText));
+  });
+  return true;
+}
+
+function pasteHandler(event) {
+  const file = getClipboardImageFile(event.clipboardData);
+  if (file && insertImageFile(file)) {
+    event.preventDefault();
+    return;
+  }
+
+  const text = event.clipboardData?.getData("text/plain") || "";
+  const snippet = markdownForPaste(classifyPastedText(text), selectedText());
+  if (!snippet) {
+    return;
+  }
+
+  event.preventDefault();
+  insertAtCursor(snippet);
 }
 
 function setKind(kind) {

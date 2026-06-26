@@ -40,7 +40,10 @@
 
   <LoadingIndicator
     ref="loadingIndicator"
-    class="flatnotes-note-shell flex h-full min-w-0 max-w-full flex-col"
+    :class="[
+      'flatnotes-note-shell flex h-full min-w-0 max-w-full flex-col',
+      { 'flatnotes-note-shell-wide': isWideDashboardNote },
+    ]"
   >
     <!-- Header -->
     <div class="min-w-0 max-w-full">
@@ -103,6 +106,7 @@
         :current-kind="editorKind"
         :initialValue="getInitialEditorValue()"
         :note-title="newTitle"
+        :addImageBlobHook="addImageBlobHook"
         :show-kind-switch="isNewNote"
         @change="startContentChangedTimeout"
         @keydown="keydownHandler"
@@ -177,6 +181,11 @@ const canModify = computed(
 const isHtmlFormat = computed(() => (note.value.format || "html") === "html");
 const isWorkNote = computed(
   () => isHtmlFormat.value && isWorkNoteHtml(note.value.content || ""),
+);
+const isWideDashboardNote = computed(
+  () =>
+    isHtmlFormat.value &&
+    /class=["'][^"']*\bnirv-dashboard-v3\b/.test(note.value.content || ""),
 );
 let contentChangedTimeout = null;
 let lastContentTap = null;
@@ -906,6 +915,10 @@ onUnmounted(() => globalStore.clearNoteActions());
 .flatnotes-note-shell {
   width: min(100%, 68rem);
   margin-inline: auto;
+}
+
+.flatnotes-note-shell-wide {
+  width: min(100%, 92rem);
 }
 
 @supports not (overflow: clip) {
