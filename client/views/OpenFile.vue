@@ -25,12 +25,24 @@
             size="1rem"
           />
         </button>
-        <CustomButton
-          label="Choose"
-          :iconPath="mdiFolderOpenOutline"
-          iconSize="1rem"
+        <button
+          type="button"
+          class="flatnotes-open-file-icon-button"
+          title="Choose another local file"
+          aria-label="Choose another local file"
           @click="chooseFile"
-        />
+        >
+          <SvgIcon type="mdi" :path="mdiFolderOpenOutline" size="1rem" />
+        </button>
+        <button
+          type="button"
+          class="flatnotes-open-file-icon-button"
+          title="Close external file"
+          aria-label="Close external file"
+          @click="closeExternalFile"
+        >
+          <SvgIcon type="mdi" :path="mdiClose" size="1rem" />
+        </button>
       </div>
     </div>
 
@@ -49,7 +61,7 @@
         class="flatnotes-open-file-status"
         :class="{ 'flatnotes-open-file-status-error': statusTone === 'error' }"
       >
-        <SvgIcon type="mdi" :path="statusIcon" size="0.88rem" />
+        <SvgIcon type="mdi" :path="statusIcon" size="0.76rem" />
         {{ statusMessage }}
       </span>
       <span
@@ -108,17 +120,18 @@ import {
   mdiAlertCircleOutline,
   mdiCheck,
   mdiCheckCircleOutline,
+  mdiClose,
   mdiContentCopy,
   mdiFileDocumentOutline,
   mdiFolderOpenOutline,
 } from "@mdi/js";
 import { computed, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 
 import {
   writeMarkdownToClipboard,
   writePlainTextToClipboard,
 } from "../clipboard.js";
-import CustomButton from "../components/CustomButton.vue";
 import IconLabel from "../components/IconLabel.vue";
 import ToastViewer from "../components/toastui/ToastViewer.vue";
 import {
@@ -133,6 +146,7 @@ const activeKey = ref(null);
 const lastConsumedLaunchId = ref(null);
 const statusMessage = ref("");
 const statusTone = ref("info");
+const router = useRouter();
 
 const activeFile = computed(
   () => files.value.find((file) => file.key === activeKey.value) || null,
@@ -145,7 +159,6 @@ const metadataItems = computed(() => {
   return [
     { label: "type", value: activeFile.value.extension || "text" },
     { label: "size", value: formatBytes(activeFile.value.size) },
-    { label: "preview", value: activeFile.value.previewMode },
   ];
 });
 const statusIcon = computed(() =>
@@ -164,6 +177,14 @@ watch(externalFileLaunch, consumeExternalLaunch, { immediate: true });
 
 function chooseFile() {
   fileInput.value?.click();
+}
+
+function closeExternalFile() {
+  files.value = [];
+  activeKey.value = null;
+  statusMessage.value = "";
+  copied.value = false;
+  router.push({ name: "home" });
 }
 
 async function fileInputChanged(event) {
@@ -203,7 +224,6 @@ async function fileToPreview(file) {
     extension,
     content,
     previewMarkdown,
-    previewMode: isMarkdown ? "markdown" : "plain text",
     lastModified: file.lastModified,
   };
 }
@@ -304,26 +324,24 @@ function showStatus(message, tone = "info") {
 
 .flatnotes-open-file-strip {
   display: flex;
-  min-height: 1.85rem;
+  min-height: 1.42rem;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
-  margin-bottom: 0.85rem;
-  border: 1px solid rgb(var(--theme-border));
-  border-radius: 6px;
-  padding: 0.22rem 0.28rem;
+  gap: 0.28rem;
+  margin-bottom: 0.58rem;
   color: rgb(var(--theme-text-muted));
-  background-color: rgb(var(--theme-background-elevated));
+  font-size: 0.76rem;
+  line-height: 1.1;
 }
 
 .flatnotes-open-file-status,
 .flatnotes-open-file-meta {
   display: inline-flex;
-  min-height: 1.28rem;
+  min-height: 1.18rem;
   align-items: center;
-  gap: 0.28rem;
+  gap: 0.22rem;
   border-radius: 999px;
-  padding: 0 0.44rem;
+  padding: 0 0.38rem;
   line-height: 1;
 }
 
@@ -337,13 +355,13 @@ function showStatus(message, tone = "info") {
 
 .flatnotes-open-file-meta {
   border: 1px solid rgb(var(--theme-border));
-  background-color: rgb(var(--theme-background));
-  font-size: 0.78rem;
+  background-color: rgb(var(--theme-background-elevated) / 0.45);
+  font-size: 0.72rem;
 }
 
 .flatnotes-open-file-meta span {
   color: rgb(var(--theme-text-very-muted));
-  font-size: 0.66rem;
+  font-size: 0.62rem;
   font-weight: 700;
   text-transform: uppercase;
 }
