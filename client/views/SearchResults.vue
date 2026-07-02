@@ -22,6 +22,7 @@
       <!-- Search Results -->
       <div
         v-for="result in results"
+        :key="result.title"
         class="mb-4 cursor-pointer rounded px-2 py-1 hover:bg-theme-background-elevated"
       >
         <RouterLink :to="{ name: 'note', params: { title: result.title } }">
@@ -43,6 +44,19 @@
           </div>
         </RouterLink>
       </div>
+
+      <div
+        v-if="results.length === 0"
+        class="mt-8 flex flex-col items-center gap-3 text-center text-theme-text-muted"
+      >
+        <div class="text-sm">No results</div>
+        <RouterLink
+          v-if="canCreateFromSearch"
+          :to="{ name: 'new', query: { title: creatableTitle } }"
+        >
+          <CustomButton :iconPath="mdiPlusCircle" label="Create Note" />
+        </RouterLink>
+      </div>
     </LoadingIndicator>
   </div>
 </template>
@@ -52,7 +66,7 @@ import { useToast } from "primevue/usetoast";
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
-import { mdiMagnify, mdiSort } from "@mdi/js";
+import { mdiPlusCircle, mdiSort } from "@mdi/js";
 import { apiErrorHandler, getNotes } from "../api.js";
 import CustomButton from "../components/CustomButton.vue";
 import LoadingIndicator from "../components/LoadingIndicator.vue";
@@ -76,6 +90,13 @@ const sortMenu = ref();
 const toast = useToast();
 
 const effectiveSearchTerm = computed(() => props.searchTerm || "*");
+const creatableTitle = computed(() =>
+  effectiveSearchTerm.value === "*" ? "" : effectiveSearchTerm.value.trim(),
+);
+const canCreateFromSearch = computed(() => {
+  const title = creatableTitle.value;
+  return Boolean(title) && !/^#/.test(title) && !/^[@:+]/.test(title);
+});
 
 const sortByName = computed(() => {
   const sortOptionNames = {
@@ -91,11 +112,7 @@ function init() {
   getNotes(effectiveSearchTerm.value)
     .then((data) => {
       results.value = sortResults(data);
-      if (results.value.length > 0) {
-        loadingIndicator.value.setLoaded();
-      } else {
-        loadingIndicator.value.setFailed("No Results", mdiMagnify);
-      }
+      loadingIndicator.value.setLoaded();
     })
     .catch((error) => {
       loadingIndicator.value.setFailed();

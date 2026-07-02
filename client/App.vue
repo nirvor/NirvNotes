@@ -5,6 +5,14 @@
     :class="{
       'flatnotes-app-shell-note': route.name === 'note' || route.name === 'new',
       'flatnotes-app-shell-dashboard': isDashboardRoute,
+      'flatnotes-app-shell-note-work':
+        isNoteRoute && globalStore.noteLayoutKind === 'work',
+      'flatnotes-app-shell-note-research':
+        isNoteRoute && globalStore.noteLayoutKind === 'research',
+      'flatnotes-app-shell-note-markdown':
+        isNoteRoute && globalStore.noteLayoutKind === 'markdown',
+      'flatnotes-app-shell-note-focus':
+        isNoteRoute && globalStore.noteFocusMode,
     }"
   >
     <PrimeToast />
@@ -12,10 +20,13 @@
     <NavBar
       v-if="showNavBar"
       ref="navBar"
-      :class="{ 'print:hidden': route.name == 'note' }"
+      :class="{
+        'print:hidden': route.name == 'note',
+        'flatnotes-app-nav-focus': globalStore.noteFocusMode,
+      }"
       @toggleSearchModal="toggleSearchModal"
     />
-    <NoteTabs v-if="showNavBar" />
+    <NoteTabs v-if="showNavBar && !globalStore.noteFocusMode" />
     <RouterView />
   </LoadingIndicator>
 </template>
@@ -82,6 +93,10 @@ const showNavBar = computed(() => {
   return route.name !== "login";
 });
 
+const isNoteRoute = computed(
+  () => route.name === "note" || route.name === "new",
+);
+
 const isDashboardRoute = computed(() => {
   if (route.name !== "note") {
     return false;
@@ -120,6 +135,34 @@ loadTheme();
 
 .flatnotes-app-shell-note {
   max-width: min(100%, 68rem);
+}
+
+.flatnotes-app-shell-note-work {
+  max-width: min(100%, 54rem);
+}
+
+.flatnotes-app-shell-note-markdown {
+  max-width: min(100%, 58rem);
+}
+
+.flatnotes-app-shell-note-research {
+  max-width: min(100%, 76rem);
+}
+
+.flatnotes-app-shell-note-focus {
+  max-width: min(100%, calc(100vw - 1.5rem));
+  padding-top: 0.75rem;
+}
+
+.flatnotes-app-nav-focus {
+  margin-bottom: 0.35rem;
+  opacity: 0.72;
+  transition: opacity 140ms ease;
+}
+
+.flatnotes-app-nav-focus:hover,
+.flatnotes-app-nav-focus:focus-within {
+  opacity: 1;
 }
 
 .flatnotes-app-shell-dashboard,

@@ -42,7 +42,13 @@
     ref="loadingIndicator"
     :class="[
       'flatnotes-note-shell flex h-full min-w-0 max-w-full flex-col',
-      { 'flatnotes-note-shell-wide': isWideDashboardNote },
+      {
+        'flatnotes-note-shell-wide': isWideDashboardNote,
+        'flatnotes-note-shell-work': noteLayoutKind === 'work',
+        'flatnotes-note-shell-research': noteLayoutKind === 'research',
+        'flatnotes-note-shell-markdown': noteLayoutKind === 'markdown',
+        'flatnotes-note-shell-focus': focusMode,
+      },
     ]"
   >
     <!-- Header -->
@@ -129,7 +135,16 @@
 </template>
 
 <script setup>
-import { mdiNoteOffOutline } from "@mdi/js";
+import {
+  mdiCodeTags,
+  mdiContentCopy,
+  mdiFullscreen,
+  mdiFullscreenExit,
+  mdiLanguageHtml5,
+  mdiLinkVariant,
+  mdiNoteOffOutline,
+  mdiTextBoxOutline,
+} from "@mdi/js";
 import { mdilContentSave, mdilDelete } from "@mdi/light-js";
 import Mousetrap from "mousetrap";
 import { useToast } from "primevue/usetoast";
@@ -153,6 +168,11 @@ import {
   updateNote,
 } from "../api.js";
 import { Note } from "../classes.js";
+import {
+  writeHtmlToClipboard,
+  writeMarkdownToClipboard,
+  writePlainTextToClipboard,
+} from "../clipboard.js";
 import ConfirmModal from "../components/ConfirmModal.vue";
 import HtmlEditor from "../components/html/HtmlEditor.vue";
 import HtmlViewer from "../components/html/HtmlViewer.vue";
@@ -173,6 +193,7 @@ import { isCurrentTokenStored } from "../tokenStorage.js";
 
 const props = defineProps({
   title: String,
+  initialTitle: String,
 });
 
 const canModify = computed(
@@ -189,6 +210,21 @@ const isWideDashboardNote = computed(
       note.value.content || "",
     ),
 );
+const noteLayoutKind = computed(() => {
+  if (isWideDashboardNote.value) {
+    return "dashboard";
+  }
+  if (editMode.value) {
+    return "editor";
+  }
+  if (isWorkNote.value) {
+    return "work";
+  }
+  if (isHtmlFormat.value) {
+    return "research";
+  }
+  return "markdown";
+});
 let contentChangedTimeout = null;
 let lastContentTap = null;
 const contentEditor = ref();
@@ -196,6 +232,7 @@ const editorKey = ref(0);
 const editMode = ref(false);
 const editorFormat = ref("html");
 const editorKind = ref("work");
+const focusMode = ref(false);
 const globalStore = useGlobalStore();
 const isSaveChangesModalVisible = ref(false);
 const isDeleteModalVisible = ref(false);
@@ -217,6 +254,7 @@ function init() {
     return;
   }
 
+  focusMode.value = false;
   loadingIndicator.value.setLoading();
   if (props.title) {
     getNote(props.title)
@@ -233,7 +271,7 @@ function init() {
         }
       });
   } else {
-    newTitle.value = "";
+    newTitle.value = getInitialNewTitle();
     note.value = new Note();
     editorFormat.value = "html";
     editorKind.value = loadNewNoteKind();
@@ -246,6 +284,13 @@ function init() {
       loadingIndicator.value.setLoaded();
     });
   }
+}
+
+function getInitialNewTitle() {
+  const title = Array.isArray(props.initialTitle)
+    ? props.initialTitle[0]
+    : props.initialTitle;
+  return String(title || "").trim();
 }
 
 // Note Editing
@@ -267,7 +312,9 @@ function editHandler() {
 }
 
 function setEditMode() {
-  newTitle.value = note.value.title;
+  newTitle.value = isNewNote.value
+    ? newTitle.value || getInitialNewTitle()
+    : note.value.title;
   editorFormat.value = note.value.format || "html";
   if (editorFormat.value === "html") {
     editorKind.value = isWorkNoteHtml(note.value.content || "")
@@ -847,16 +894,170 @@ function setNewNoteKind(kind) {
   editorKind.value = kind;
   localStorage.setItem("nirvNotesNewNoteKind", kind);
   note.value.content =
-    kind === "work"
-      ? buildWorkNoteHtml(newTitle.value || "Untitled", "")
-      : "";
+    kind === "work" ? buildWorkNoteHtml(newTitle.value || "Untitled", "") : "";
   clearDraft();
   unsavedChanges.value = false;
   editorKey.value += 1;
 }
 
+function toggleFocusMode() {
+  focusMode.value = !focusMode.value;
+}
+
+function getNoteSourceContent() {
+  return note.value.content || "";
+}
+
+function extractBodyHtml(html) {
+  if (!/<(?:!doctype|html|head|body)\b/i.test(html || "")) {
+    return html || "";
+  }
+
+  const parsedDocument = new DOMParser().parseFromString(
+    html || "",
+    "text/html",
+  );
+  return parsedDocument.body?.innerHTML || html || "";
+}
+
+function htmlToPlainText(html) {
+  const parsedDocument = new DOMParser().parseFromString(
+    extractBodyHtml(html),
+    "text/html",
+  );
+  parsedDocument
+    .querySelectorAll("script, style, template, .flatnotes-note-hidden-title")
+    .forEach((element) => element.remove());
+
+  const rawText =
+    parsedDocument.body?.innerText || parsedDocument.body?.textContent || "";
+  return normalizeCopiedText(rawText);
+}
+
+function normalizeCopiedText(text) {
+  return String(text || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function getMarkdownSource() {
+  return isWorkNote.value
+    ? extractWorkMarkdown(getNoteSourceContent())
+    : getNoteSourceContent();
+}
+
+function getDefaultCopyKind() {
+  if (isWorkNote.value || !isHtmlFormat.value) {
+    return "source";
+  }
+  return "text";
+}
+
+function getCopyLabel(kind) {
+  if (kind === "link") {
+    return "Link copied ✓";
+  }
+  if (kind === "html") {
+    return "HTML copied ✓";
+  }
+  if (kind === "source") {
+    return isHtmlFormat.value && !isWorkNote.value
+      ? "Source copied ✓"
+      : "Markdown copied ✓";
+  }
+  return "Text copied ✓";
+}
+
+function getNoteLink() {
+  const resolved = router.resolve({
+    name: "note",
+    params: { title: note.value.title },
+  });
+  return `${window.location.origin}${resolved.href}`;
+}
+
+async function copyNote(kind = "default") {
+  const copyKind = kind === "default" ? getDefaultCopyKind() : kind;
+  try {
+    if (copyKind === "link") {
+      await writePlainTextToClipboard(getNoteLink());
+    } else if (copyKind === "html") {
+      const html = extractBodyHtml(getNoteSourceContent());
+      await writeHtmlToClipboard(html, htmlToPlainText(html));
+    } else if (copyKind === "source") {
+      const source = getMarkdownSource();
+      if (isWorkNote.value || !isHtmlFormat.value) {
+        await writeMarkdownToClipboard(source);
+      } else {
+        await writePlainTextToClipboard(source);
+      }
+    } else {
+      const text = isHtmlFormat.value
+        ? htmlToPlainText(getNoteSourceContent())
+        : normalizeCopiedText(getNoteSourceContent());
+      await writePlainTextToClipboard(text);
+    }
+    toast.add(getToastOptions(getCopyLabel(copyKind), "Copied", "success"));
+  } catch {
+    toast.add(
+      getToastOptions("Could not copy this note.", "Copy Failed", "error"),
+    );
+  }
+}
+
+function getCopyMenuItems() {
+  if (editMode.value || isNewNote.value || !note.value.title) {
+    return [];
+  }
+
+  const items = [
+    {
+      label:
+        isWorkNote.value || !isHtmlFormat.value ? "Copy Markdown" : "Copy Text",
+      icon:
+        isWorkNote.value || !isHtmlFormat.value
+          ? mdiCodeTags
+          : mdiTextBoxOutline,
+      command: () =>
+        copyNote(isWorkNote.value || !isHtmlFormat.value ? "source" : "text"),
+    },
+  ];
+
+  if (isHtmlFormat.value && !isWorkNote.value) {
+    items.push({
+      label: "Copy HTML",
+      icon: mdiLanguageHtml5,
+      command: () => copyNote("html"),
+    });
+  }
+
+  items.push({
+    label: "Copy Link",
+    icon: mdiLinkVariant,
+    command: () => copyNote("link"),
+  });
+
+  return items;
+}
+
 function updateNoteActions() {
   globalStore.setNoteActions([
+    {
+      key: "copy",
+      label: "Copy",
+      iconPath: mdiContentCopy,
+      visible: !editMode.value && !isNewNote.value && Boolean(note.value.title),
+      handler: () => copyNote(),
+    },
+    {
+      key: "focus",
+      label: focusMode.value ? "Normal" : "Focus",
+      iconPath: focusMode.value ? mdiFullscreenExit : mdiFullscreen,
+      visible: !editMode.value && !isNewNote.value && Boolean(note.value.title),
+      handler: toggleFocusMode,
+    },
     {
       key: "delete",
       label: "Delete",
@@ -879,6 +1080,11 @@ function updateNoteActions() {
       handler: toggleEditModeHandler,
     },
   ]);
+  globalStore.setNoteMenuItems(getCopyMenuItems());
+  globalStore.setNoteLayout({
+    focusMode: focusMode.value,
+    kind: noteLayoutKind.value,
+  });
 }
 
 function isContentChanged() {
@@ -903,6 +1109,15 @@ function getEditorContent() {
 
 watchEffect(updateNoteActions);
 watch(() => props.title, init);
+watch(
+  () => props.initialTitle,
+  () => {
+    if (!isNewNote.value || unsavedChanges.value) {
+      return;
+    }
+    newTitle.value = getInitialNewTitle();
+  },
+);
 onMounted(init);
 onUnmounted(() => globalStore.clearNoteActions());
 </script>
@@ -919,10 +1134,32 @@ onUnmounted(() => globalStore.clearNoteActions());
   margin-inline: auto;
 }
 
+.flatnotes-note-shell-work {
+  width: min(100%, 54rem);
+}
+
+.flatnotes-note-shell-markdown {
+  width: min(100%, 58rem);
+}
+
+.flatnotes-note-shell-research {
+  width: min(100%, 76rem);
+}
+
 .flatnotes-note-shell-wide {
   width: min(100%, calc(100vw - 1.5rem));
   max-width: none;
   margin-inline: auto;
+}
+
+.flatnotes-note-shell-focus {
+  width: min(100%, calc(100vw - 1.5rem));
+  max-width: none;
+}
+
+.flatnotes-note-shell-focus
+  :deep(.toastui-editor-contents:not(.flatnotes-html-contents)) {
+  max-width: 64rem;
 }
 
 @supports not (overflow: clip) {

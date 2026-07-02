@@ -51,3 +51,24 @@ export async function writeMarkdownToClipboard(markdown) {
 
   await writePlainTextToClipboard(markdown);
 }
+
+export async function writeHtmlToClipboard(html, plainText = "") {
+  if (navigator.clipboard?.write && window.ClipboardItem) {
+    try {
+      const htmlBlob = new Blob([html], { type: "text/html" });
+      const plainBlob = new Blob([plainText || html], { type: "text/plain" });
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": htmlBlob,
+          "text/plain": plainBlob,
+        }),
+      ]);
+      return;
+    } catch {
+      // Rich HTML clipboard support is still uneven. Plain text keeps the copy
+      // action useful in locked-down browser contexts.
+    }
+  }
+
+  await writePlainTextToClipboard(plainText || html);
+}

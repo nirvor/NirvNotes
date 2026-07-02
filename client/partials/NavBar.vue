@@ -21,11 +21,7 @@
         <CustomButton :iconPath="mdilPlusCircle" label="New Note" />
       </RouterLink>
       <!-- Menu -->
-      <CustomButton
-        :iconPath="mdilMenu"
-        label="Menu"
-        @click="toggleMenu"
-      />
+      <CustomButton :iconPath="mdilMenu" label="Menu" @click="toggleMenu" />
       <PrimeMenu ref="menu" :model="menuItems" :popup="true" />
     </div>
   </nav>
@@ -56,7 +52,7 @@ const router = useRouter();
 
 const emit = defineEmits(["toggleSearchModal"]);
 
-const menuItems = [
+const baseMenuItems = [
   {
     label: "Search",
     icon: mdilMagnify,
@@ -92,6 +88,15 @@ const menuItems = [
   },
 ];
 
+const menuItems = computed(() => {
+  const noteItems = globalStore.noteMenuItems || [];
+  if (!noteItems.length) {
+    return baseMenuItems;
+  }
+
+  return [...noteItems, { separator: true }, ...baseMenuItems];
+});
+
 const showNewButton = computed(() => {
   return globalStore.config.authType !== authTypes.readOnly;
 });
@@ -109,6 +114,8 @@ function toggleMenu(event) {
 }
 
 function showLogOutButton() {
-  return ![authTypes.none, authTypes.readOnly].includes(globalStore.config.authType);
+  return ![authTypes.none, authTypes.readOnly].includes(
+    globalStore.config.authType,
+  );
 }
 </script>

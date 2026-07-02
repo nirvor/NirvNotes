@@ -163,20 +163,55 @@ function tagCloudChosen(tag) {
 
 function search() {
   const term = searchTerm.value.trim();
-  recordTagsFromSearchTerm(term);
-  const query =
-    term.length > 0
-      ? { [constants.params.searchTerm]: term }
-      : {
-          [constants.params.searchTerm]: "*",
-          [constants.params.sortBy]: constants.searchSortOptions.lastModified,
-        };
+  const route = getRouteForSearchTerm(term);
+  if (route.name === "search") {
+    recordTagsFromSearchTerm(term);
+  }
 
-  router.push({
-    name: "search",
-    query,
-  });
+  router.push(route);
   emit("search");
+}
+
+function getRouteForSearchTerm(term) {
+  const normalizedTerm = term.trim();
+  const lowerTerm = normalizedTerm.toLowerCase();
+
+  if (!normalizedTerm || ["*", "all", ":all"].includes(lowerTerm)) {
+    return {
+      name: "search",
+      query: {
+        [constants.params.searchTerm]: "*",
+        [constants.params.sortBy]: constants.searchSortOptions.lastModified,
+      },
+    };
+  }
+
+  if (
+    ["file", "file:", "files", "@external", "external", "open"].includes(
+      lowerTerm,
+    )
+  ) {
+    return { name: "openFile" };
+  }
+
+  const newTitle = getNewNoteTitleFromCommand(normalizedTerm);
+  if (newTitle) {
+    return { name: "new", query: { title: newTitle } };
+  }
+
+  return {
+    name: "search",
+    query: { [constants.params.searchTerm]: normalizedTerm },
+  };
+}
+
+function getNewNoteTitleFromCommand(term) {
+  if (term.startsWith("+")) {
+    return term.slice(1).trim();
+  }
+
+  const newMatch = term.match(/^new\s+(.+)$/i);
+  return newMatch ? newMatch[1].trim() : "";
 }
 
 function recordTagsFromSearchTerm(term) {

@@ -34,6 +34,7 @@ const router = createRouter({
       path: "/new",
       name: "new",
       component: () => import("./views/Note.vue"),
+      props: (route) => ({ initialTitle: route.query.title }),
     },
     {
       path: "/open-file",
