@@ -249,13 +249,19 @@ function stripInlineMarkdown(value = "") {
 }
 
 function normalizeMetadataKey(key = "") {
-  return key.toLowerCase().replace(/\s+/g, " ").trim();
+  return stripInlineMarkdown(key)
+    .replace(/[*_`]+/g, "")
+    .replace(/^[-*\s]+/, "")
+    .replace(/\s*\/\s*/g, "/")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function compactMetadataValue(key, value) {
   const normalizedKey = normalizeMetadataKey(key);
   const cleaned = stripInlineMarkdown(value);
-  if (!cleaned || normalizedKey === "original writer") {
+  if (!cleaned || normalizedKey === "original writer" || normalizedKey === "writer") {
     return "";
   }
 
@@ -263,7 +269,7 @@ function compactMetadataValue(key, value) {
     return cleaned;
   }
 
-  if (normalizedKey === "topic / subdomain" || normalizedKey === "topic/subdomain") {
+  if (normalizedKey === "topic/subdomain") {
     return cleaned;
   }
 
