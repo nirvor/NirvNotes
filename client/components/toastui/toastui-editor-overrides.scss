@@ -207,19 +207,28 @@
   }
 
   table {
+    display: block;
+    width: max-content;
+    max-width: 100%;
     margin: 1rem 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
     border-collapse: separate;
     border-spacing: 0;
+    border: 1px solid rgb(var(--theme-border) / 0.72);
+    border-radius: 6px;
+    background-color: rgb(var(--theme-background-elevated) / 0.26);
   }
 
   table th,
   table td {
-    border-color: rgb(var(--theme-border) / 0.78);
-    padding: 0.55rem 0.7rem;
+    border-color: rgb(var(--theme-border) / 0.58);
+    padding: 0.48rem 0.65rem;
     vertical-align: top;
   }
 
   table th {
+    background-color: rgb(var(--theme-background-elevated) / 0.46);
     color: rgb(var(--theme-heading));
     font-weight: 600;
   }
@@ -250,6 +259,35 @@
 .toastui-editor-contents svg {
   max-width: 100%;
   height: auto;
+}
+
+.toastui-editor-contents figure {
+  max-width: 100%;
+  margin: 1rem 0;
+}
+
+.toastui-editor-contents figure:not(.flatnotes-media-figure):not(.flatnotes-note-lead-hero) {
+  display: grid;
+  justify-items: center;
+  gap: 0.35rem;
+}
+
+.toastui-editor-contents figure img,
+.toastui-editor-contents figure svg,
+.toastui-editor-contents figure canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 0;
+  border-radius: 4px;
+  background-color: transparent;
+}
+
+.toastui-editor-contents figure figcaption {
+  width: 100%;
+  color: rgb(var(--theme-text-muted));
+  font-size: 0.8rem;
+  line-height: 1.35;
 }
 
 // Clean lead renderer
@@ -1090,21 +1128,23 @@ body.flatnotes-media-lightbox-open {
 .toastui-editor-contents .flatnotes-code-block-wrapper pre {
   margin: 0;
   max-width: 100%;
-  padding-right: 3.25rem;
+  padding-right: 2.85rem;
   overflow-x: auto;
+  border: 1px solid rgb(var(--theme-border) / 0.38);
+  border-radius: 6px;
 }
 
 .flatnotes-code-copy-button {
   position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
+  top: 0.42rem;
+  right: 0.42rem;
   display: flex;
-  width: 2rem;
-  height: 2rem;
+  width: 1.7rem;
+  height: 1.7rem;
   align-items: center;
   justify-content: center;
   border: 1px solid rgb(var(--theme-border));
-  border-radius: 6px;
+  border-radius: 5px;
   color: rgb(var(--theme-text-muted));
   background-color: rgba(var(--theme-background), 0.9);
   opacity: 0.74;
@@ -1116,8 +1156,8 @@ body.flatnotes-media-lightbox-open {
 }
 
 .flatnotes-code-copy-button svg {
-  width: 1rem;
-  height: 1rem;
+  width: 0.92rem;
+  height: 0.92rem;
   fill: currentColor;
 }
 
