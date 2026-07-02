@@ -45,22 +45,24 @@
     <!-- Empty Search Tag Cloud -->
     <div
       v-if="tagCloudVisible"
-      class="mt-1.5 w-full rounded-md border border-theme-border bg-theme-background p-2 dark:bg-theme-background-elevated"
+      class="mt-2 w-full rounded-md border border-theme-border bg-theme-background/95 px-2.5 py-2 shadow-[0_10px_28px_rgba(0,0,0,0.12)] dark:bg-theme-background-elevated/80"
     >
-      <p class="mb-1.5 text-[0.68rem] font-bold uppercase text-theme-text-very-muted">
-        Top Tags
-      </p>
-      <div class="flex flex-wrap gap-1.5">
+      <div class="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pr-1">
         <button
           v-for="tag in topTags"
           :key="tag.name"
           type="button"
-          class="rounded-full border border-theme-border bg-theme-background px-2 py-0.5 text-xs text-theme-text hover:border-theme-brand hover:text-theme-brand dark:bg-theme-background"
+          class="inline-flex items-center gap-1 rounded-full border border-theme-border bg-theme-background px-2.5 py-1 text-[0.8rem] leading-none text-theme-text-muted transition hover:border-theme-brand hover:bg-theme-background-elevated hover:text-theme-text focus-visible:border-theme-brand focus-visible:outline-none dark:bg-theme-background"
           @click="tagCloudChosen(tag.name)"
           @mousedown.prevent
         >
-          {{ tag.name }}
-          <span class="ml-1 text-theme-text-muted">{{ tag.count }}</span>
+          <IconLabel :iconPath="mdiTag" iconSize="0.8em" />
+          <span>{{ tag.name }}</span>
+          <span
+            v-if="tag.count > 0"
+            class="ml-0.5 rounded-full bg-theme-background-elevated px-1.5 py-0.5 text-[0.68rem] text-theme-text-very-muted dark:bg-theme-background"
+            >{{ tag.count }}</span
+          >
         </button>
       </div>
     </div>
@@ -68,14 +70,21 @@
 </template>
 
 <script setup>
+import { mdiTag } from "@mdi/js";
 import { mdilMagnify } from "@mdi/light-js";
 import { useToast } from "primevue/usetoast";
-import { ref, watch } from "vue";
+import { onBeforeUnmount, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
 import { apiErrorHandler, getSemanticIndex, getTags } from "../api.js";
 import IconLabel from "../components/IconLabel.vue";
 import * as constants from "../constants.js";
+import {
+  getTagUsage,
+  normalizeTagName,
+  onTagUsageChange,
+  recordTagUse,
+} from "../tagUsage.js";
 
 const props = defineProps({
   initialSearchTerm: { type: String, default: "" },
@@ -90,6 +99,7 @@ const router = useRouter();
 const searchTerm = ref(searchTermForInput(props.initialSearchTerm));
 const toast = useToast();
 let tags = null;
+let tagCloudEntries = [];
 const tagMatches = ref([]);
 const tagMenuItems = ref([]);
 const tagMenuIndex = ref(0);
@@ -97,6 +107,13 @@ const tagMenuVisible = ref(false);
 const tagCloudVisible = ref(false);
 const topTags = ref([]);
 let tagCloudLoaded = false;
+const tagCloudLimit = 18;
+const priorityTagBonus = {
+  work: 90,
+  private: 70,
+  infra: 60,
+  pinned: 24,
+};
 
 function searchTermForInput(value = "") {
   return value === "*" ? "" : value || "";
@@ -149,6 +166,7 @@ function tagCloudChosen(tag) {
 
 function search() {
   const term = searchTerm.value.trim();
+  recordTagsFromSearchTerm(term);
   const query =
     term.length > 0
       ? { [constants.params.searchTerm]: term }
@@ -162,6 +180,13 @@ function search() {
     query,
   });
   emit("search");
+}
+
+function recordTagsFromSearchTerm(term) {
+  const searchTags = [...term.matchAll(/#[a-zA-Z0-9_-]+/g)].map((match) =>
+    normalizeTagName(match[0]),
+  );
+  recordTagUse(searchTags);
 }
 
 function stateChangeHandler() {
@@ -195,22 +220,33 @@ function stateChangeHandler() {
 async function showTagCloud() {
   if (!tagCloudLoaded) {
     try {
-      const index = await getSemanticIndex();
+      const [index, indexedTags] = await Promise.all([
+        getSemanticIndex(),
+        getTags().catch(() => []),
+      ]);
       const counts = new Map();
+      const tagNames = new Set();
       index.forEach((note) => {
         new Set(note.tags || []).forEach((tag) => {
-          counts.set(tag, (counts.get(tag) || 0) + 1);
+          const normalizedTag = normalizeTagName(tag);
+          if (!normalizedTag) {
+            return;
+          }
+          tagNames.add(normalizedTag);
+          counts.set(normalizedTag, (counts.get(normalizedTag) || 0) + 1);
         });
       });
-      topTags.value = [...counts.entries()]
-        .map(([name, count]) => ({ name, count }))
-        .sort((left, right) => {
-          if (right.count !== left.count) {
-            return right.count - left.count;
-          }
-          return left.name.localeCompare(right.name);
-        })
-        .slice(0, 14);
+      indexedTags.forEach((tag) => {
+        const normalizedTag = normalizeTagName(tag);
+        if (normalizedTag) {
+          tagNames.add(normalizedTag);
+        }
+      });
+      tagCloudEntries = [...tagNames].map((name) => ({
+        name,
+        count: counts.get(name) || 0,
+      }));
+      rebuildTopTags();
     } catch (error) {
       topTags.value = [];
       apiErrorHandler(error, toast);
@@ -218,7 +254,38 @@ async function showTagCloud() {
     tagCloudLoaded = true;
   }
 
+  rebuildTopTags();
   tagCloudVisible.value = topTags.value.length > 0;
+}
+
+function rebuildTopTags() {
+  const usage = getTagUsage();
+  topTags.value = tagCloudEntries
+    .map((tag) => {
+      const tagUsage = usage[tag.name] || { count: 0, lastUsed: 0 };
+      const ageDays = tagUsage.lastUsed
+        ? (Date.now() - tagUsage.lastUsed) / 86400000
+        : Infinity;
+      const recencyBoost = Number.isFinite(ageDays)
+        ? Math.max(0, 18 - ageDays)
+        : 0;
+      const useBoost = Math.min(Number(tagUsage.count) || 0, 20) * 14;
+      const priorityBoost = priorityTagBonus[tag.name] || 0;
+      return {
+        ...tag,
+        score: tag.count * 10 + useBoost + recencyBoost + priorityBoost,
+      };
+    })
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      if (right.count !== left.count) {
+        return right.count - left.count;
+      }
+      return left.name.localeCompare(right.name);
+    })
+    .slice(0, tagCloudLimit);
 }
 
 async function filterTagMatches(input) {
@@ -294,4 +361,12 @@ watch(
   },
   { immediate: true },
 );
+
+const stopTagUsageListener = onTagUsageChange(() => {
+  if (tagCloudLoaded) {
+    rebuildTopTags();
+  }
+});
+
+onBeforeUnmount(stopTagUsageListener);
 </script>

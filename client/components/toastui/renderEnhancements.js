@@ -10,6 +10,7 @@ import {
 import katex from "katex";
 
 import { writePlainTextToClipboard } from "../../clipboard.js";
+import { recordTagUse } from "../../tagUsage.js";
 
 const codeBlockWrapperClass = "flatnotes-code-block-wrapper";
 const codeCopyButtonClass = "flatnotes-code-copy-button";
@@ -917,6 +918,7 @@ function createBottomTagChip(tag) {
   chip.className = bottomTagChipClass;
   chip.href = createTagSearchHref(tag);
   chip.setAttribute("title", `Search #${tag}`);
+  chip.addEventListener("click", () => recordTagUse(tag));
   chip.append(createIcon(mdiTag), document.createTextNode(tag));
   return chip;
 }
@@ -952,10 +954,7 @@ export function enhanceBottomTags(rootElement) {
   const contentRoot = outerContentRoot
     ? getPrimaryContentContainer(outerContentRoot)
     : null;
-  if (
-    !contentRoot ||
-    contentRoot.querySelector(`.${bottomTagsClass}`)
-  ) {
+  if (!contentRoot || contentRoot.querySelector(`.${bottomTagsClass}`)) {
     return;
   }
 
