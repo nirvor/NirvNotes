@@ -43,16 +43,13 @@
     </div>
 
     <!-- Empty Search Tag Cloud -->
-    <div
-      v-if="tagCloudVisible"
-      class="mt-2 w-full rounded-md border border-theme-border bg-theme-background/95 px-2.5 py-2 shadow-[0_10px_28px_rgba(0,0,0,0.12)] dark:bg-theme-background-elevated/80"
-    >
-      <div class="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pr-1">
+    <div v-if="tagCloudVisible" class="mt-2 w-full px-1">
+      <div class="flex flex-wrap gap-1.5">
         <button
           v-for="tag in topTags"
           :key="tag.name"
           type="button"
-          class="inline-flex items-center gap-1 rounded-full border border-theme-border bg-theme-background px-2.5 py-1 text-[0.8rem] leading-none text-theme-text-muted transition hover:border-theme-brand hover:bg-theme-background-elevated hover:text-theme-text focus-visible:border-theme-brand focus-visible:outline-none dark:bg-theme-background"
+          class="inline-flex items-center gap-1 rounded-full border border-theme-border/80 bg-theme-background-elevated/60 px-2.5 py-1 text-[0.8rem] leading-none text-theme-text-muted shadow-sm transition hover:border-theme-brand hover:bg-theme-background-elevated hover:text-theme-text focus-visible:border-theme-brand focus-visible:outline-none dark:bg-theme-background-elevated/45"
           @click="tagCloudChosen(tag.name)"
           @mousedown.prevent
         >
@@ -107,7 +104,7 @@ const tagMenuVisible = ref(false);
 const tagCloudVisible = ref(false);
 const topTags = ref([]);
 let tagCloudLoaded = false;
-const tagCloudLimit = 18;
+const tagCloudLimit = 14;
 const priorityTagBonus = {
   work: 90,
   private: 70,
