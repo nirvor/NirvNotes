@@ -2,7 +2,10 @@
   <LoadingIndicator
     ref="loadingIndicator"
     class="flatnotes-app-shell container mx-auto flex min-h-screen w-full min-w-0 max-w-full flex-col px-2 py-4 print:max-w-full"
-    :class="{ 'flatnotes-app-shell-note': route.name === 'note' || route.name === 'new' }"
+    :class="{
+      'flatnotes-app-shell-note': route.name === 'note' || route.name === 'new',
+      'flatnotes-app-shell-dashboard': isDashboardRoute,
+    }"
   >
     <PrimeToast />
     <SearchModal v-model="isSearchModalVisible" />
@@ -79,6 +82,29 @@ const showNavBar = computed(() => {
   return route.name !== "login";
 });
 
+const isDashboardRoute = computed(() => {
+  if (route.name !== "note") {
+    return false;
+  }
+  const title = normalizeNoteTitle(route.params.title);
+  return (
+    title === "nirv-bot" ||
+    title === "nirv bot status" ||
+    title.startsWith("nirv bot ") ||
+    title.startsWith("nirv-bot ")
+  );
+});
+
+function normalizeNoteTitle(value) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const text = String(raw || "");
+  try {
+    return decodeURIComponent(text).trim().toLowerCase().replace(/\s+/g, " ");
+  } catch {
+    return text.trim().toLowerCase().replace(/\s+/g, " ");
+  }
+}
+
 function toggleSearchModal() {
   isSearchModalVisible.value = !isSearchModalVisible.value;
 }
@@ -94,6 +120,13 @@ loadTheme();
 
 .flatnotes-app-shell-note {
   max-width: min(100%, 68rem);
+}
+
+.flatnotes-app-shell-dashboard,
+.flatnotes-app-shell-note.flatnotes-app-shell-dashboard {
+  width: min(100%, calc(100vw - 1.5rem));
+  max-width: none;
+  overflow-x: clip;
 }
 
 @supports not (overflow: clip) {

@@ -185,7 +185,9 @@ const isWorkNote = computed(
 const isWideDashboardNote = computed(
   () =>
     isHtmlFormat.value &&
-    /class=["'][^"']*\bnirv-dashboard-v3\b/.test(note.value.content || ""),
+    /class=["'][^"']*\b(?:nirv-dashboard-v[345]|nirv-board)\b/.test(
+      note.value.content || "",
+    ),
 );
 let contentChangedTimeout = null;
 let lastContentTap = null;
@@ -918,7 +920,9 @@ onUnmounted(() => globalStore.clearNoteActions());
 }
 
 .flatnotes-note-shell-wide {
-  width: min(100%, 92rem);
+  width: min(100%, calc(100vw - 1.5rem));
+  max-width: none;
+  margin-inline: auto;
 }
 
 @supports not (overflow: clip) {
