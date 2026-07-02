@@ -47,7 +47,6 @@
         'flatnotes-note-shell-work': noteLayoutKind === 'work',
         'flatnotes-note-shell-research': noteLayoutKind === 'research',
         'flatnotes-note-shell-markdown': noteLayoutKind === 'markdown',
-        'flatnotes-note-shell-focus': focusMode,
       },
     ]"
   >
@@ -138,8 +137,6 @@
 import {
   mdiCodeTags,
   mdiContentCopy,
-  mdiFullscreen,
-  mdiFullscreenExit,
   mdiLanguageHtml5,
   mdiLinkVariant,
   mdiNoteOffOutline,
@@ -232,7 +229,6 @@ const editorKey = ref(0);
 const editMode = ref(false);
 const editorFormat = ref("html");
 const editorKind = ref("work");
-const focusMode = ref(false);
 const globalStore = useGlobalStore();
 const isSaveChangesModalVisible = ref(false);
 const isDeleteModalVisible = ref(false);
@@ -254,7 +250,6 @@ function init() {
     return;
   }
 
-  focusMode.value = false;
   loadingIndicator.value.setLoading();
   if (props.title) {
     getNote(props.title)
@@ -900,9 +895,6 @@ function setNewNoteKind(kind) {
   editorKey.value += 1;
 }
 
-function toggleFocusMode() {
-  focusMode.value = !focusMode.value;
-}
 
 function getNoteSourceContent() {
   return note.value.content || "";
@@ -1052,13 +1044,6 @@ function updateNoteActions() {
       handler: () => copyNote(),
     },
     {
-      key: "focus",
-      label: focusMode.value ? "Normal" : "Focus",
-      iconPath: focusMode.value ? mdiFullscreenExit : mdiFullscreen,
-      visible: !editMode.value && !isNewNote.value && Boolean(note.value.title),
-      handler: toggleFocusMode,
-    },
-    {
       key: "delete",
       label: "Delete",
       iconPath: mdilDelete,
@@ -1082,7 +1067,6 @@ function updateNoteActions() {
   ]);
   globalStore.setNoteMenuItems(getCopyMenuItems());
   globalStore.setNoteLayout({
-    focusMode: focusMode.value,
     kind: noteLayoutKind.value,
   });
 }
@@ -1152,15 +1136,6 @@ onUnmounted(() => globalStore.clearNoteActions());
   margin-inline: auto;
 }
 
-.flatnotes-note-shell-focus {
-  width: min(100%, calc(100vw - 1.5rem));
-  max-width: none;
-}
-
-.flatnotes-note-shell-focus
-  :deep(.toastui-editor-contents:not(.flatnotes-html-contents)) {
-  max-width: 64rem;
-}
 
 @supports not (overflow: clip) {
   .flatnotes-note-shell,

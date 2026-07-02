@@ -4,7 +4,6 @@ import { ref } from "vue";
 export const useGlobalStore = defineStore("global", () => {
   const config = ref({});
   const noteActions = ref([]);
-  const noteFocusMode = ref(false);
   const noteLayoutKind = ref("default");
   const noteMenuItems = ref([]);
 
@@ -16,22 +15,19 @@ export const useGlobalStore = defineStore("global", () => {
     noteMenuItems.value = items;
   }
 
-  function setNoteLayout({ focusMode = false, kind = "default" } = {}) {
-    noteFocusMode.value = focusMode;
+  function setNoteLayout({ kind = "default" } = {}) {
     noteLayoutKind.value = kind;
   }
 
   function clearNoteActions() {
     noteActions.value = [];
     noteMenuItems.value = [];
-    noteFocusMode.value = false;
     noteLayoutKind.value = "default";
   }
 
   return {
     config,
     noteActions,
-    noteFocusMode,
     noteLayoutKind,
     noteMenuItems,
     setNoteActions,

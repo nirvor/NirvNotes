@@ -11,8 +11,6 @@
         isNoteRoute && globalStore.noteLayoutKind === 'research',
       'flatnotes-app-shell-note-markdown':
         isNoteRoute && globalStore.noteLayoutKind === 'markdown',
-      'flatnotes-app-shell-note-focus':
-        isNoteRoute && globalStore.noteFocusMode,
     }"
   >
     <PrimeToast />
@@ -22,11 +20,10 @@
       ref="navBar"
       :class="{
         'print:hidden': route.name == 'note',
-        'flatnotes-app-nav-focus': globalStore.noteFocusMode,
       }"
       @toggleSearchModal="toggleSearchModal"
     />
-    <NoteTabs v-if="showNavBar && !globalStore.noteFocusMode" />
+    <NoteTabs v-if="showNavBar" />
     <RouterView />
   </LoadingIndicator>
 </template>
@@ -149,21 +146,6 @@ loadTheme();
   max-width: min(100%, 76rem);
 }
 
-.flatnotes-app-shell-note-focus {
-  max-width: min(100%, calc(100vw - 1.5rem));
-  padding-top: 0.75rem;
-}
-
-.flatnotes-app-nav-focus {
-  margin-bottom: 0.35rem;
-  opacity: 0.72;
-  transition: opacity 140ms ease;
-}
-
-.flatnotes-app-nav-focus:hover,
-.flatnotes-app-nav-focus:focus-within {
-  opacity: 1;
-}
 
 .flatnotes-app-shell-dashboard,
 .flatnotes-app-shell-note.flatnotes-app-shell-dashboard {
