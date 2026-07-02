@@ -89,7 +89,14 @@ import {
   mdiEyeOutline,
   mdiFormatListChecks,
 } from "@mdi/js";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
 
 import NoteKindSwitch from "../NoteKindSwitch.vue";
 import { writeMarkdownToClipboard } from "../../clipboard.js";
@@ -124,6 +131,7 @@ const markdown = ref(initialMarkdown());
 const previewVisible = ref(false);
 const textarea = ref();
 let tagNormalizeTimeout = null;
+let lastTagNormalizationUndo = null;
 
 const previewKey = computed(() => `${previewVisible.value}-${markdown.value}`);
 
@@ -267,25 +275,18 @@ function clearTagNormalizeTimeout() {
   }
 }
 
-function scheduleTagNormalization() {
-  clearTagNormalizeTimeout();
-  if (!textContainsTag(markdown.value)) {
-    return;
+function clearStaleTagUndo() {
+  if (
+    lastTagNormalizationUndo &&
+    markdown.value !== lastTagNormalizationUndo.after
+  ) {
+    lastTagNormalizationUndo = null;
   }
-
-  tagNormalizeTimeout = window.setTimeout(() => {
-    const before = markdown.value;
-    normalizeEditorTags();
-    if (markdown.value !== before) {
-      emit("change");
-    }
-  }, 320);
 }
 
 function mapCursorAfterTagNormalization(value, position) {
-  const tagPattern = /(^|\s)#([a-zA-Z0-9][a-zA-Z0-9_-]*)(?=\s|$)/g;
-  const tagOnlyLinePattern =
-    /^\s*(?:#[a-zA-Z0-9][a-zA-Z0-9_-]*\s*)+$/;
+  const tagPattern = /(^|[ \t])#([a-zA-Z0-9][a-zA-Z0-9_-]*)([ \t]?)/g;
+  const tagOnlyLinePattern = /^\s*(?:#[a-zA-Z0-9][a-zA-Z0-9_-]*\s*)+$/;
   const lines = value.slice(0, position).split("\n");
   let inCodeFence = false;
   const mappedLines = [];
@@ -309,17 +310,19 @@ function mapCursorAfterTagNormalization(value, position) {
     }
 
     mappedLines.push(
-      line
-        .replace(tagPattern, "$1")
-        .replace(/[ \t]{2,}/g, " ")
-        .replace(/[ \t]+$/g, ""),
+      line.replace(tagPattern, (match, prefix) => {
+        return prefix;
+      }),
     );
   }
 
   return mappedLines.join("\n").length;
 }
 
-function normalizeEditorTags({ restoreSelection = true } = {}) {
+function normalizeEditorTags({
+  restoreSelection = true,
+  recordUndo = false,
+} = {}) {
   const element = textarea.value;
   const selectionStart = element?.selectionStart ?? markdown.value.length;
   const selectionEnd = element?.selectionEnd ?? selectionStart;
@@ -327,6 +330,15 @@ function normalizeEditorTags({ restoreSelection = true } = {}) {
   const normalized = normalizeWorkMarkdownTags(before);
   if (!normalized.changed || normalized.markdown === markdown.value) {
     return normalized.markdown;
+  }
+
+  if (recordUndo) {
+    lastTagNormalizationUndo = {
+      before,
+      after: normalized.markdown,
+      selectionStart,
+      selectionEnd,
+    };
   }
 
   markdown.value = normalized.markdown;
@@ -348,6 +360,23 @@ function normalizeEditorTags({ restoreSelection = true } = {}) {
   return normalized.markdown;
 }
 
+function undoTagNormalization() {
+  const undo = lastTagNormalizationUndo;
+  if (!undo || markdown.value !== undo.after) {
+    return false;
+  }
+
+  markdown.value = undo.before;
+  lastTagNormalizationUndo = null;
+  nextTick(() => {
+    resizeTextarea();
+    textarea.value?.focus();
+    textarea.value?.setSelectionRange(undo.selectionStart, undo.selectionEnd);
+  });
+  emit("change");
+  return true;
+}
+
 async function copyMarkdown() {
   try {
     const normalizedMarkdown = normalizeEditorTags();
@@ -363,17 +392,26 @@ async function copyMarkdown() {
 
 function contentInputHandler(event) {
   markdown.value = event.target.value;
+  clearStaleTagUndo();
   if (shouldNormalizeTags(event)) {
     clearTagNormalizeTimeout();
-    normalizeEditorTags();
-  } else {
-    scheduleTagNormalization();
+    normalizeEditorTags({ recordUndo: true });
   }
   resizeTextarea();
   emit("change");
 }
 
 function keydownHandler(event) {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    event.key.toLowerCase() === "z" &&
+    !event.shiftKey &&
+    undoTagNormalization()
+  ) {
+    event.preventDefault();
+    return;
+  }
+
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
     event.preventDefault();
     insertAtCursor("****");
@@ -488,7 +526,8 @@ defineExpose({ getContent, getMarkdown });
   background-color: rgb(var(--theme-background));
 }
 
-@media (max-width: 640px) and (pointer: coarse), (max-width: 640px) and (hover: none) {
+@media (max-width: 640px) and (pointer: coarse),
+  (max-width: 640px) and (hover: none) {
   .flatnotes-work-editor-toolbar {
     gap: 0.22rem;
     min-height: 2.35rem;

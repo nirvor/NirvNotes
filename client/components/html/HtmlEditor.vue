@@ -81,6 +81,11 @@ const content = ref(props.initialValue || "");
 const fileInput = ref();
 const selectedSnippet = ref(htmlComponentSnippets[0]?.id || "");
 const textarea = ref();
+let lastTagNormalizationUndo = null;
+
+const htmlTagTokenPattern = /(^|[ \t])#([a-zA-Z0-9][a-zA-Z0-9_-]*)([ \t]?)/g;
+const htmlBottomTagParagraphPattern =
+  /^\s*<p>\s*(#[a-zA-Z0-9][a-zA-Z0-9_-]*(?:\s+#[a-zA-Z0-9][a-zA-Z0-9_-]*)*)\s*<\/p>\s*$/i;
 
 function chooseImage() {
   fileInput.value?.click();
@@ -131,7 +136,189 @@ function resizeTextarea() {
   element.style.height = `${element.scrollHeight}px`;
 }
 
-function contentInputHandler() {
+function normalizeTagName(tag = "") {
+  return tag.replace(/^#/, "").trim().toLowerCase();
+}
+
+function sortTags(tags = []) {
+  return [...tags].sort((left, right) => left.localeCompare(right));
+}
+
+function collectTagsFromText(value = "", addTag) {
+  [...String(value).matchAll(/#[a-zA-Z0-9][a-zA-Z0-9_-]*/g)].forEach((match) =>
+    addTag(match[0]),
+  );
+}
+
+function removeInlineTagsFromHtmlLine(line, addTag) {
+  let removed = false;
+  const cleanedLine = line.replace(
+    htmlTagTokenPattern,
+    (match, prefix, tag) => {
+      addTag(tag);
+      removed = true;
+      return prefix;
+    },
+  );
+
+  return { line: cleanedLine, removed };
+}
+
+function insertBeforeLastClosingTag(markup, insertion, tagName) {
+  const closingTag = `</${tagName}>`;
+  const index = markup.toLowerCase().lastIndexOf(closingTag);
+  if (index < 0) {
+    return null;
+  }
+
+  return `${markup.slice(0, index).trimEnd()}\n${insertion}\n${markup.slice(index)}`;
+}
+
+function appendBottomTagParagraph(markup, tags) {
+  if (!tags.length) {
+    return markup;
+  }
+
+  const tagParagraph = `<p>${tags.map((tag) => `#${tag}`).join(" ")}</p>`;
+  return (
+    insertBeforeLastClosingTag(markup, tagParagraph, "article") ||
+    insertBeforeLastClosingTag(markup, tagParagraph, "body") ||
+    insertBeforeLastClosingTag(markup, tagParagraph, "html") ||
+    `${markup.trimEnd()}\n\n${tagParagraph}\n`
+  );
+}
+
+function normalizeHtmlBottomTags(html = "") {
+  const lines = String(html || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
+  const bodyLines = [];
+  const tags = new Set();
+  let removedTag = false;
+
+  const addTag = (tag) => {
+    const normalizedTag = normalizeTagName(tag);
+    if (normalizedTag) {
+      tags.add(normalizedTag);
+    }
+  };
+
+  for (const line of lines) {
+    const bottomTagMatch = line.match(htmlBottomTagParagraphPattern);
+    if (bottomTagMatch) {
+      collectTagsFromText(bottomTagMatch[1], addTag);
+      removedTag = true;
+      continue;
+    }
+
+    const cleaned = removeInlineTagsFromHtmlLine(line, addTag);
+    if (cleaned.removed) {
+      removedTag = true;
+    }
+    bodyLines.push(cleaned.line);
+  }
+
+  const normalized = appendBottomTagParagraph(
+    bodyLines.join("\n").trimEnd(),
+    sortTags([...tags]),
+  );
+
+  return {
+    changed: removedTag && normalized !== html,
+    html: normalized,
+  };
+}
+
+function contentHasTagsOutsideBottomParagraph(html = "") {
+  return normalizeHtmlBottomTags(html).changed;
+}
+
+function cursorJustClosedTag(value, position) {
+  const beforeCursor = value.slice(0, position);
+  return /(^|[\s>])#[a-zA-Z0-9][a-zA-Z0-9_-]*\s+$/.test(beforeCursor);
+}
+
+function shouldNormalizeTags(event) {
+  const element = event?.target;
+  const value = element?.value || content.value;
+  const position = element?.selectionStart ?? value.length;
+
+  if (["insertFromPaste", "insertReplacementText"].includes(event?.inputType)) {
+    return contentHasTagsOutsideBottomParagraph(value);
+  }
+
+  if (
+    event?.data === " " ||
+    event?.data === "\n" ||
+    ["insertLineBreak", "insertParagraph"].includes(event?.inputType)
+  ) {
+    return cursorJustClosedTag(value, position);
+  }
+
+  return false;
+}
+
+function normalizeEditorTags({ recordUndo = false } = {}) {
+  const element = textarea.value;
+  const selectionStart = element?.selectionStart ?? content.value.length;
+  const selectionEnd = element?.selectionEnd ?? selectionStart;
+  const before = content.value;
+  const normalized = normalizeHtmlBottomTags(before);
+  if (!normalized.changed || normalized.html === before) {
+    return before;
+  }
+
+  if (recordUndo) {
+    lastTagNormalizationUndo = {
+      before,
+      after: normalized.html,
+      selectionStart,
+      selectionEnd,
+    };
+  }
+
+  content.value = normalized.html;
+  nextTick(() => {
+    resizeTextarea();
+    const nextPosition = Math.min(selectionStart, content.value.length);
+    element?.setSelectionRange(nextPosition, nextPosition);
+  });
+
+  return normalized.html;
+}
+
+function clearStaleTagUndo() {
+  if (
+    lastTagNormalizationUndo &&
+    content.value !== lastTagNormalizationUndo.after
+  ) {
+    lastTagNormalizationUndo = null;
+  }
+}
+
+function undoTagNormalization() {
+  const undo = lastTagNormalizationUndo;
+  if (!undo || content.value !== undo.after) {
+    return false;
+  }
+
+  content.value = undo.before;
+  lastTagNormalizationUndo = null;
+  nextTick(() => {
+    resizeTextarea();
+    textarea.value?.focus();
+    textarea.value?.setSelectionRange(undo.selectionStart, undo.selectionEnd);
+  });
+  emit("change");
+  return true;
+}
+
+function contentInputHandler(event) {
+  content.value = event.target.value;
+  clearStaleTagUndo();
+  if (shouldNormalizeTags(event)) {
+    normalizeEditorTags({ recordUndo: true });
+  }
   resizeTextarea();
   emit("change");
 }
@@ -172,7 +359,9 @@ function insertClassifiedPaste(classification) {
   }
 
   if (classification.type === "url") {
-    insertAtCursor(createLinkCardSnippet(classification.url, classification.label));
+    insertAtCursor(
+      createLinkCardSnippet(classification.url, classification.label),
+    );
     return true;
   }
 
@@ -212,11 +401,21 @@ function dropHandler(event) {
 }
 
 function keydownHandler(event) {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    event.key.toLowerCase() === "z" &&
+    !event.shiftKey &&
+    undoTagNormalization()
+  ) {
+    event.preventDefault();
+    return;
+  }
+
   emit("keydown", event);
 }
 
 function getContent() {
-  return content.value;
+  return normalizeEditorTags();
 }
 
 function isWysiwygMode() {
@@ -309,7 +508,8 @@ defineExpose({ getContent, isWysiwygMode });
   tab-size: 2;
 }
 
-@media (max-width: 640px) and (pointer: coarse), (max-width: 640px) and (hover: none) {
+@media (max-width: 640px) and (pointer: coarse),
+  (max-width: 640px) and (hover: none) {
   .flatnotes-html-editor-toolbar {
     min-height: 2.35rem;
     gap: 0.4rem;

@@ -30,7 +30,9 @@ function getBodyHtml(value = "") {
 }
 
 function normalizeMarkdown(value = "") {
-  return String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
 }
 
 function normalizeTagName(tag = "") {
@@ -67,10 +69,78 @@ function sortWorkTags(tags = []) {
   });
 }
 
+const workTagTokenPattern = /(^|[ \t])#([a-zA-Z0-9][a-zA-Z0-9_-]*)([ \t]?)/g;
+const workTagOnlyLinePattern = /^\s*(?:#[a-zA-Z0-9][a-zA-Z0-9_-]*\s*)+$/;
+
+function collectTagsFromLine(line, addTag) {
+  [...line.matchAll(/#[a-zA-Z0-9][a-zA-Z0-9_-]*/g)].forEach((match) =>
+    addTag(match[0]),
+  );
+}
+
+function removeInlineTagsFromLine(line, addTag) {
+  let removed = false;
+  const cleanedLine = line.replace(
+    workTagTokenPattern,
+    (match, prefix, tag) => {
+      addTag(tag);
+      removed = true;
+      return prefix;
+    },
+  );
+
+  return { line: cleanedLine, removed };
+}
+
+function getBottomTagLineIndexes(lines) {
+  const indexes = new Set();
+  let index = lines.length - 1;
+
+  while (index >= 0 && !lines[index].trim()) {
+    index -= 1;
+  }
+
+  while (index >= 0 && workTagOnlyLinePattern.test(lines[index])) {
+    indexes.add(index);
+    index -= 1;
+    while (index >= 0 && !lines[index].trim()) {
+      index -= 1;
+    }
+  }
+
+  return indexes;
+}
+
+function hasMovableWorkMarkdownTags(markdown = "") {
+  const lines = normalizeMarkdown(markdown).split("\n");
+  const bottomTagLineIndexes = getBottomTagLineIndexes(lines);
+  let inCodeFence = false;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    const fenceLine = trimmed.startsWith("```");
+    if (fenceLine) {
+      inCodeFence = !inCodeFence;
+      continue;
+    }
+
+    if (inCodeFence || bottomTagLineIndexes.has(index)) {
+      continue;
+    }
+
+    if (workTagOnlyLinePattern.test(line) || workTagTokenPattern.test(line)) {
+      workTagTokenPattern.lastIndex = 0;
+      return true;
+    }
+
+    workTagTokenPattern.lastIndex = 0;
+  }
+
+  return false;
+}
+
 function normalizeWorkMarkdownTags(markdown = "") {
-  const tagPattern = /(^|\s)#([a-zA-Z0-9][a-zA-Z0-9_-]*)(?=\s|$)/g;
-  const tagOnlyLinePattern =
-    /^\s*(?:#[a-zA-Z0-9][a-zA-Z0-9_-]*\s*)+$/;
   const lines = normalizeMarkdown(markdown).split("\n");
   const bodyLines = [];
   const tags = new Set();
@@ -98,22 +168,17 @@ function normalizeWorkMarkdownTags(markdown = "") {
       continue;
     }
 
-    if (tagOnlyLinePattern.test(line)) {
-      [...line.matchAll(tagPattern)].forEach((match) => addTag(match[2]));
+    if (workTagOnlyLinePattern.test(line)) {
+      collectTagsFromLine(line, addTag);
       removedTag = true;
       continue;
     }
 
-    const cleanedLine = line
-      .replace(tagPattern, (match, prefix, tag) => {
-        addTag(tag);
-        removedTag = true;
-        return prefix;
-      })
-      .replace(/[ \t]{2,}/g, " ")
-      .replace(/[ \t]+$/g, "");
-
-    bodyLines.push(cleanedLine);
+    const cleaned = removeInlineTagsFromLine(line, addTag);
+    if (cleaned.removed) {
+      removedTag = true;
+    }
+    bodyLines.push(cleaned.line);
   }
 
   while (bodyLines.length && !bodyLines[bodyLines.length - 1].trim()) {
@@ -121,7 +186,8 @@ function normalizeWorkMarkdownTags(markdown = "") {
   }
 
   const hadTrailingRule =
-    bodyLines.length > 0 && /^\s*---+\s*$/.test(bodyLines[bodyLines.length - 1]);
+    bodyLines.length > 0 &&
+    /^\s*---+\s*$/.test(bodyLines[bodyLines.length - 1]);
   if (hadTrailingRule) {
     bodyLines.pop();
     while (bodyLines.length && !bodyLines[bodyLines.length - 1].trim()) {
@@ -199,7 +265,11 @@ function renderMarkdownTable(lines, startIndex) {
   const header = splitTableRow(lines[startIndex]);
   let index = startIndex + 2;
   const rows = [];
-  while (index < lines.length && /\|/.test(lines[index]) && lines[index].trim()) {
+  while (
+    index < lines.length &&
+    /\|/.test(lines[index]) &&
+    lines[index].trim()
+  ) {
     rows.push(splitTableRow(lines[index]));
     index += 1;
   }
@@ -268,12 +338,20 @@ function renderMarkdownToHtml(markdown = "") {
       if (index < lines.length) {
         index += 1;
       }
-      const languageClass = language ? ` class="language-${escapeAttribute(language)}"` : "";
-      blocks.push(`<pre><code${languageClass}>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+      const languageClass = language
+        ? ` class="language-${escapeAttribute(language)}"`
+        : "";
+      blocks.push(
+        `<pre><code${languageClass}>${escapeHtml(codeLines.join("\n"))}</code></pre>`,
+      );
       continue;
     }
 
-    if (index + 1 < lines.length && /\|/.test(line) && isTableSeparator(lines[index + 1])) {
+    if (
+      index + 1 < lines.length &&
+      /\|/.test(line) &&
+      isTableSeparator(lines[index + 1])
+    ) {
       const table = renderMarkdownTable(lines, index);
       blocks.push(table.html);
       index = table.nextIndex;
@@ -283,7 +361,9 @@ function renderMarkdownToHtml(markdown = "") {
     const heading = line.match(/^(#{1,6})\s+(.+)$/);
     if (heading) {
       const level = heading[1].length;
-      blocks.push(`<h${level}>${renderInlineMarkdown(heading[2].trim())}</h${level}>`);
+      blocks.push(
+        `<h${level}>${renderInlineMarkdown(heading[2].trim())}</h${level}>`,
+      );
       index += 1;
       continue;
     }
@@ -300,7 +380,9 @@ function renderMarkdownToHtml(markdown = "") {
         quote.push(lines[index].replace(/^\s*>\s?/, ""));
         index += 1;
       }
-      blocks.push(`<blockquote>${renderMarkdownToHtml(quote.join("\n"))}</blockquote>`);
+      blocks.push(
+        `<blockquote>${renderMarkdownToHtml(quote.join("\n"))}</blockquote>`,
+      );
       continue;
     }
 
@@ -347,7 +429,9 @@ function isWorkNoteHtml(value = "") {
 
   if (
     /data-flatnotes-note-kind=["']work["']/i.test(value) ||
-    /<meta[^>]+name=["']flatnotes-note-kind["'][^>]+content=["']work["']/i.test(value)
+    /<meta[^>]+name=["']flatnotes-note-kind["'][^>]+content=["']work["']/i.test(
+      value,
+    )
   ) {
     return true;
   }
@@ -356,7 +440,9 @@ function isWorkNoteHtml(value = "") {
     const documentValue = parseHtml(value);
     return Boolean(
       documentValue.querySelector(workNoteSelector) ||
-        documentValue.querySelector("meta[name='flatnotes-note-kind'][content='work']"),
+        documentValue.querySelector(
+          "meta[name='flatnotes-note-kind'][content='work']",
+        ),
     );
   } catch {
     return false;
@@ -375,7 +461,9 @@ function extractWorkMarkdown(value = "") {
   const documentValue = parseHtml(value);
   const template = documentValue.querySelector(markdownTemplateSelector);
   if (template) {
-    return normalizeMarkdown(template.content?.textContent || template.innerHTML || "");
+    return normalizeMarkdown(
+      template.content?.textContent || template.innerHTML || "",
+    );
   }
 
   const fallback = documentValue.querySelector("[data-flatnotes-work-source]");
@@ -419,6 +507,7 @@ export {
   buildWorkNoteHtml,
   extractTagsFromMarkdown,
   extractWorkMarkdown,
+  hasMovableWorkMarkdownTags,
   isWorkNoteHtml,
   normalizeWorkMarkdownTags,
   renderMarkdownToHtml,

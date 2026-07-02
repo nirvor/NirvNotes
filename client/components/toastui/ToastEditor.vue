@@ -7,7 +7,10 @@ import Editor from "@toast-ui/editor";
 import { onBeforeUnmount, onMounted, ref } from "vue";
 
 import baseOptions from "./baseOptions.js";
-import { normalizeWorkMarkdownTags } from "../work/workNote.js";
+import {
+  hasMovableWorkMarkdownTags,
+  normalizeWorkMarkdownTags,
+} from "../work/workNote.js";
 
 const props = defineProps({
   initialValue: String,
@@ -24,6 +27,7 @@ const editorElement = ref();
 let toastEditor;
 let tagNormalizeTimeout = null;
 let applyingTagNormalization = false;
+let lastTagNormalizationUndo = null;
 
 function clearTagNormalizeTimeout() {
   if (tagNormalizeTimeout != null) {
@@ -33,11 +37,15 @@ function clearTagNormalizeTimeout() {
 }
 
 function markdownContainsTag(markdown = "") {
-  return /(^|\s)#[a-zA-Z0-9][a-zA-Z0-9_-]*(?=\s|$)/.test(markdown);
+  return hasMovableWorkMarkdownTags(markdown);
 }
 
 function normalizeMarkdownTagsLive() {
-  if (!toastEditor || applyingTagNormalization || !toastEditor.isMarkdownMode()) {
+  if (
+    !toastEditor ||
+    applyingTagNormalization ||
+    !toastEditor.isMarkdownMode()
+  ) {
     return;
   }
 
@@ -51,6 +59,10 @@ function normalizeMarkdownTagsLive() {
     return;
   }
 
+  lastTagNormalizationUndo = {
+    before: markdown,
+    after: normalized.markdown,
+  };
   applyingTagNormalization = true;
   toastEditor.setMarkdown(normalized.markdown, false);
   window.setTimeout(() => {
@@ -67,6 +79,27 @@ function scheduleTagNormalization() {
   tagNormalizeTimeout = window.setTimeout(normalizeMarkdownTagsLive, 320);
 }
 
+function undoTagNormalization() {
+  if (!toastEditor || !lastTagNormalizationUndo) {
+    return false;
+  }
+
+  const currentMarkdown = toastEditor.getMarkdown();
+  if (currentMarkdown !== lastTagNormalizationUndo.after) {
+    lastTagNormalizationUndo = null;
+    return false;
+  }
+
+  applyingTagNormalization = true;
+  toastEditor.setMarkdown(lastTagNormalizationUndo.before, false);
+  lastTagNormalizationUndo = null;
+  window.setTimeout(() => {
+    applyingTagNormalization = false;
+  }, 0);
+  emit("change");
+  return true;
+}
+
 onMounted(() => {
   toastEditor = new Editor({
     ...baseOptions,
@@ -75,12 +108,28 @@ onMounted(() => {
     initialEditType: props.initialEditType,
     events: {
       change: () => {
+        if (
+          lastTagNormalizationUndo &&
+          toastEditor?.getMarkdown() !== lastTagNormalizationUndo.after
+        ) {
+          lastTagNormalizationUndo = null;
+        }
         if (!applyingTagNormalization) {
           scheduleTagNormalization();
         }
         emit("change");
       },
       keydown: (_, event) => {
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.key.toLowerCase() === "z" &&
+          !event.shiftKey &&
+          undoTagNormalization()
+        ) {
+          event.preventDefault();
+          return;
+        }
+
         emit("keydown", event);
       },
     },
