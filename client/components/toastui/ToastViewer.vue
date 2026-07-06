@@ -8,10 +8,6 @@ import { onMounted, ref, watch } from "vue";
 
 import baseOptions from "./baseOptions.js";
 import extendedAutolinks from "./extendedAutolinks.js";
-import {
-  enhanceRenderedMarkdown,
-  enhanceTaskListCheckboxes,
-} from "./renderEnhancements.js";
 
 const props = defineProps({
   initialValue: String,
@@ -25,6 +21,15 @@ const props = defineProps({
 });
 
 const viewerElement = ref();
+let renderEnhancementsPromise = null;
+
+function loadRenderEnhancements() {
+  if (!renderEnhancementsPromise) {
+    renderEnhancementsPromise = import("./renderEnhancements.js");
+  }
+
+  return renderEnhancementsPromise;
+}
 
 onMounted(async () => {
   new Viewer({
@@ -33,6 +38,7 @@ onMounted(async () => {
     el: viewerElement.value,
     initialValue: props.initialValue,
   });
+  const { enhanceRenderedMarkdown } = await loadRenderEnhancements();
   await enhanceRenderedMarkdown(viewerElement.value, {
     noteLead: props.enhanceNoteLead,
     noteTitle: props.noteTitle,
@@ -49,7 +55,8 @@ function getTaskListOptions() {
 
 watch(
   () => props.taskCheckboxesDisabled,
-  () => {
+  async () => {
+    const { enhanceTaskListCheckboxes } = await loadRenderEnhancements();
     enhanceTaskListCheckboxes(viewerElement.value, getTaskListOptions());
   },
 );

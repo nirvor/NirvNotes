@@ -10,8 +10,6 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 
-import { enhanceRenderedMarkdown } from "../toastui/renderEnhancements.js";
-
 const props = defineProps({
   initialValue: String,
   noteTitle: String,
@@ -20,10 +18,19 @@ const props = defineProps({
 });
 
 const viewerElement = ref();
+let renderEnhancementsPromise = null;
 
 const html = computed(() =>
   sanitizeHtml(extractRenderableHtml(props.initialValue || "")),
 );
+
+function loadRenderEnhancements() {
+  if (!renderEnhancementsPromise) {
+    renderEnhancementsPromise = import("../toastui/renderEnhancements.js");
+  }
+
+  return renderEnhancementsPromise;
+}
 
 function isFullHtmlDocument(value) {
   return /<(?:!doctype|html|head|body)\b/i.test(value);
@@ -75,6 +82,7 @@ function getTaskListOptions() {
 
 async function enhance() {
   await nextTick();
+  const { enhanceRenderedMarkdown } = await loadRenderEnhancements();
   await enhanceRenderedMarkdown(viewerElement.value, {
     noteTitle: props.noteTitle,
     taskList: getTaskListOptions(),

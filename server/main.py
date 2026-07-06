@@ -1,6 +1,7 @@
+import re
 from typing import List, Literal
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -32,6 +33,33 @@ app = FastAPI(
     openapi_url=global_config.path_prefix + "/openapi.json",
 )
 replace_base_href("client/dist/index.html", global_config.path_prefix)
+
+HASHED_ASSET_RE = re.compile(
+    r"/assets/.+-[A-Za-z0-9_-]{8,}\.(?:css|ico|js|otf|png|svg|ttf|webp|woff2?)$",
+    re.IGNORECASE,
+)
+FONT_ASSET_RE = re.compile(
+    r"/assets/fonts/.+\.(?:otf|ttf|woff2?)$",
+    re.IGNORECASE,
+)
+
+
+@app.middleware("http")
+async def add_static_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+
+    if HASHED_ASSET_RE.search(path):
+        response.headers["Cache-Control"] = (
+            "public, max-age=31536000, immutable"
+        )
+    elif FONT_ASSET_RE.search(path):
+        response.headers.setdefault(
+            "Cache-Control",
+            "public, max-age=2592000",
+        )
+
+    return response
 
 
 # region UI

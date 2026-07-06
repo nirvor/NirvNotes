@@ -165,7 +165,7 @@ import {
   mdiFolderOpenOutline,
   mdiPencilOutline,
 } from "@mdi/js";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
 import {
@@ -173,11 +173,14 @@ import {
   writePlainTextToClipboard,
 } from "../clipboard.js";
 import IconLabel from "../components/IconLabel.vue";
-import ToastViewer from "../components/toastui/ToastViewer.vue";
 import {
   externalFileLaunch,
   supportsFileHandlingLaunchQueue,
 } from "../externalFiles.js";
+
+const ToastViewer = defineAsyncComponent(() =>
+  import("../components/toastui/ToastViewer.vue"),
+);
 
 const copied = ref(false);
 const editMode = ref(false);

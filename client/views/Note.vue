@@ -147,6 +147,7 @@ import Mousetrap from "mousetrap";
 import { useToast } from "primevue/usetoast";
 import {
   computed,
+  defineAsyncComponent,
   nextTick,
   onMounted,
   onUnmounted,
@@ -171,13 +172,7 @@ import {
   writePlainTextToClipboard,
 } from "../clipboard.js";
 import ConfirmModal from "../components/ConfirmModal.vue";
-import HtmlEditor from "../components/html/HtmlEditor.vue";
-import HtmlViewer from "../components/html/HtmlViewer.vue";
 import LoadingIndicator from "../components/LoadingIndicator.vue";
-import ToastEditor from "../components/toastui/ToastEditor.vue";
-import ToastViewer from "../components/toastui/ToastViewer.vue";
-import WorkNoteEditor from "../components/work/WorkNoteEditor.vue";
-import WorkNoteViewer from "../components/work/WorkNoteViewer.vue";
 import {
   buildWorkNoteHtml,
   extractWorkMarkdown,
@@ -187,6 +182,25 @@ import { authTypes } from "../constants.js";
 import { useGlobalStore } from "../globalStore.js";
 import { getToastOptions } from "../helpers.js";
 import { isCurrentTokenStored } from "../tokenStorage.js";
+
+const HtmlEditor = defineAsyncComponent(() =>
+  import("../components/html/HtmlEditor.vue"),
+);
+const HtmlViewer = defineAsyncComponent(() =>
+  import("../components/html/HtmlViewer.vue"),
+);
+const ToastEditor = defineAsyncComponent(() =>
+  import("../components/toastui/ToastEditor.vue"),
+);
+const ToastViewer = defineAsyncComponent(() =>
+  import("../components/toastui/ToastViewer.vue"),
+);
+const WorkNoteEditor = defineAsyncComponent(() =>
+  import("../components/work/WorkNoteEditor.vue"),
+);
+const WorkNoteViewer = defineAsyncComponent(() =>
+  import("../components/work/WorkNoteViewer.vue"),
+);
 
 const props = defineProps({
   title: String,
