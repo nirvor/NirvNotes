@@ -15,6 +15,33 @@
           v-if="activeFile"
           type="button"
           class="flatnotes-open-file-icon-button"
+          :class="{ 'flatnotes-open-file-icon-button-active': editMode }"
+          :title="editMode ? 'Preview file' : 'Edit file'"
+          :aria-label="editMode ? 'Preview file' : 'Edit file'"
+          @click="toggleEditMode"
+        >
+          <SvgIcon
+            type="mdi"
+            :path="editMode ? mdiEyeOutline : mdiPencilOutline"
+            size="1rem"
+          />
+        </button>
+        <button
+          v-if="activeFile"
+          type="button"
+          class="flatnotes-open-file-icon-button"
+          :class="{ 'flatnotes-open-file-icon-button-dirty': activeFile.dirty }"
+          :disabled="!canSaveActiveFile"
+          :title="saveButtonTitle"
+          :aria-label="saveButtonTitle"
+          @click="saveActiveFile"
+        >
+          <SvgIcon type="mdi" :path="mdiContentSaveOutline" size="1rem" />
+        </button>
+        <button
+          v-if="activeFile"
+          type="button"
+          class="flatnotes-open-file-icon-button"
           :title="copied ? 'Copied raw source' : 'Copy raw source'"
           :aria-label="copied ? 'Copied raw source' : 'Copy raw source'"
           @click="copyActiveFile"
@@ -89,8 +116,18 @@
       </button>
     </div>
 
+    <textarea
+      v-if="activeFile && editMode"
+      v-model="activeFile.draftContent"
+      class="flatnotes-open-file-editor"
+      spellcheck="false"
+      @input="markActiveFileDirty"
+      @keydown.ctrl.s.prevent="saveActiveFile"
+      @keydown.meta.s.prevent="saveActiveFile"
+    ></textarea>
+
     <ToastViewer
-      v-if="activeFile"
+      v-else-if="activeFile"
       :key="activeFile.key"
       :initialValue="activeFile.previewMarkdown"
       :note-title="noteTitleForFile(activeFile)"
@@ -121,9 +158,12 @@ import {
   mdiCheck,
   mdiCheckCircleOutline,
   mdiClose,
+  mdiContentSaveOutline,
   mdiContentCopy,
+  mdiEyeOutline,
   mdiFileDocumentOutline,
   mdiFolderOpenOutline,
+  mdiPencilOutline,
 } from "@mdi/js";
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
@@ -140,6 +180,7 @@ import {
 } from "../externalFiles.js";
 
 const copied = ref(false);
+const editMode = ref(false);
 const fileInput = ref();
 const files = ref([]);
 const activeKey = ref(null);
@@ -151,6 +192,12 @@ const router = useRouter();
 const activeFile = computed(
   () => files.value.find((file) => file.key === activeKey.value) || null,
 );
+const canSaveActiveFile = computed(
+  () =>
+    Boolean(activeFile.value?.handle) &&
+    Boolean(activeFile.value?.dirty) &&
+    !activeFile.value?.saving,
+);
 const metadataItems = computed(() => {
   if (!activeFile.value) {
     return [];
@@ -159,11 +206,26 @@ const metadataItems = computed(() => {
   return [
     { label: "type", value: activeFile.value.extension || "text" },
     { label: "size", value: formatBytes(activeFile.value.size) },
+    {
+      label: "save",
+      value: activeFile.value.handle
+        ? activeFile.value.dirty
+          ? "unsaved"
+          : "ready"
+        : "read-only",
+    },
   ];
 });
 const statusIcon = computed(() =>
   statusTone.value === "error" ? mdiAlertCircleOutline : mdiCheckCircleOutline,
 );
+const saveButtonTitle = computed(() => {
+  if (!activeFile.value?.handle) {
+    return "Read-only: no writable file handle";
+  }
+
+  return activeFile.value.dirty ? "Save to original file" : "Saved";
+});
 
 onMounted(() => {
   if (!supportsFileHandlingLaunchQueue()) {
@@ -175,44 +237,88 @@ onMounted(() => {
 
 watch(externalFileLaunch, consumeExternalLaunch, { immediate: true });
 
-function chooseFile() {
+async function chooseFile() {
+  if (!confirmDiscardUnsavedChanges()) {
+    return;
+  }
+
+  if (window.showOpenFilePicker) {
+    try {
+      const handles = await window.showOpenFilePicker({
+        multiple: true,
+        types: [
+          {
+            description: "Text and Markdown files",
+            accept: {
+              "text/markdown": [".md"],
+              "text/plain": [".txt", ".cfg", ".ini"],
+            },
+          },
+        ],
+      });
+      const selectedFiles = [];
+      for (const handle of handles) {
+        selectedFiles.push({
+          file: await handle.getFile(),
+          handle,
+        });
+      }
+      await loadFiles(selectedFiles, "Loaded from local file picker.");
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        showStatus("Could not open the local file.", "error");
+        console.error(error);
+      }
+    }
+    return;
+  }
+
   fileInput.value?.click();
 }
 
 function closeExternalFile() {
+  if (!confirmDiscardUnsavedChanges()) {
+    return;
+  }
+
   files.value = [];
   activeKey.value = null;
   statusMessage.value = "";
   copied.value = false;
+  editMode.value = false;
   router.push({ name: "home" });
 }
 
 async function fileInputChanged(event) {
+  if (!confirmDiscardUnsavedChanges()) {
+    event.target.value = "";
+    return;
+  }
+
   await loadFiles([...event.target.files], "Loaded from local file picker.");
   event.target.value = "";
 }
 
 async function loadFiles(selectedFiles, message) {
   const readableFiles = [];
-  for (const file of selectedFiles) {
-    readableFiles.push(await fileToPreview(file));
+  for (const selectedFile of selectedFiles) {
+    readableFiles.push(await fileToPreview(selectedFile));
   }
 
   files.value = readableFiles;
   activeKey.value = readableFiles[0]?.key || null;
   copied.value = false;
+  editMode.value = false;
   if (readableFiles.length) {
     showStatus(message);
   }
 }
 
-async function fileToPreview(file) {
+async function fileToPreview(selectedFile) {
+  const { file, handle } = normalizeSelectedFile(selectedFile);
   const content = await file.text();
   const extension = getExtension(file.name);
-  const isMarkdown = extension === "md" || file.type === "text/markdown";
-  const previewMarkdown = isMarkdown
-    ? compactLeadingMarkdownMetadata(content)
-    : fencedCode(content, codeLanguageForExtension(extension));
+  const previewMarkdown = contentToPreviewMarkdown(content, extension, file.type);
 
   return {
     key: `${file.name}-${file.size}-${file.lastModified}-${Math.random()
@@ -222,10 +328,35 @@ async function fileToPreview(file) {
     size: file.size,
     type: file.type,
     extension,
+    handle,
     content,
+    draftContent: content,
     previewMarkdown,
     lastModified: file.lastModified,
+    dirty: false,
+    saving: false,
   };
+}
+
+function normalizeSelectedFile(selectedFile) {
+  if (selectedFile?.file) {
+    return {
+      file: selectedFile.file,
+      handle: selectedFile.handle || null,
+    };
+  }
+
+  return {
+    file: selectedFile,
+    handle: null,
+  };
+}
+
+function contentToPreviewMarkdown(content, extension, type) {
+  const isMarkdown = extension === "md" || type === "text/markdown";
+  return isMarkdown
+    ? compactLeadingMarkdownMetadata(content)
+    : fencedCode(content, codeLanguageForExtension(extension));
 }
 
 function getExtension(filename = "") {
@@ -356,6 +487,95 @@ function codeLanguageForExtension(extension = "") {
   return "";
 }
 
+function markActiveFileDirty() {
+  if (!activeFile.value) {
+    return;
+  }
+
+  activeFile.value.dirty = activeFile.value.draftContent !== activeFile.value.content;
+}
+
+function refreshPreview(file) {
+  file.previewMarkdown = contentToPreviewMarkdown(
+    file.draftContent,
+    file.extension,
+    file.type,
+  );
+}
+
+function toggleEditMode() {
+  if (!activeFile.value) {
+    return;
+  }
+
+  if (editMode.value) {
+    refreshPreview(activeFile.value);
+  }
+  editMode.value = !editMode.value;
+}
+
+async function saveActiveFile() {
+  const file = activeFile.value;
+  if (!file) {
+    return;
+  }
+
+  if (!file.handle) {
+    showStatus("Read-only: no writable file handle.", "error");
+    return;
+  }
+
+  try {
+    file.saving = true;
+    const hasPermission = await ensureWritePermission(file.handle);
+    if (!hasPermission) {
+      showStatus("Save permission denied.", "error");
+      return;
+    }
+
+    const writable = await file.handle.createWritable();
+    await writable.write(file.draftContent);
+    await writable.close();
+
+    const savedFile = await file.handle.getFile();
+    file.content = file.draftContent;
+    file.size = savedFile.size;
+    file.lastModified = savedFile.lastModified;
+    file.dirty = false;
+    refreshPreview(file);
+    showStatus("Saved to original file.");
+  } catch (error) {
+    showStatus("Could not save to the original file.", "error");
+    console.error(error);
+  } finally {
+    file.saving = false;
+  }
+}
+
+async function ensureWritePermission(handle) {
+  const options = { mode: "readwrite" };
+  if (handle.queryPermission) {
+    const permission = await handle.queryPermission(options);
+    if (permission === "granted") {
+      return true;
+    }
+  }
+
+  if (handle.requestPermission) {
+    return (await handle.requestPermission(options)) === "granted";
+  }
+
+  return true;
+}
+
+function confirmDiscardUnsavedChanges() {
+  if (!files.value.some((file) => file.dirty)) {
+    return true;
+  }
+
+  return window.confirm("Discard unsaved external file changes?");
+}
+
 async function consumeExternalLaunch(launch) {
   if (!launch || lastConsumedLaunchId.value === launch.id) {
     return;
@@ -363,6 +583,10 @@ async function consumeExternalLaunch(launch) {
 
   lastConsumedLaunchId.value = launch.id;
   if (launch.files?.length) {
+    if (!confirmDiscardUnsavedChanges()) {
+      return;
+    }
+
     await loadFiles(launch.files, launch.message || "Opened from Windows.");
     return;
   }
@@ -377,10 +601,11 @@ async function copyActiveFile() {
 
   const file = activeFile.value;
   const isMarkdown = file.extension === "md" || file.type === "text/markdown";
+  const content = file.draftContent ?? file.content;
   if (isMarkdown) {
-    await writeMarkdownToClipboard(file.content);
+    await writeMarkdownToClipboard(content);
   } else {
-    await writePlainTextToClipboard(file.content);
+    await writePlainTextToClipboard(content);
   }
 
   copied.value = true;
@@ -481,6 +706,40 @@ function showStatus(message, tone = "info") {
   border-color: rgb(var(--theme-brand));
   color: rgb(var(--theme-brand));
   background-color: rgb(var(--theme-background-elevated));
+}
+
+.flatnotes-open-file-icon-button:disabled {
+  cursor: default;
+  opacity: 0.46;
+}
+
+.flatnotes-open-file-icon-button-active,
+.flatnotes-open-file-icon-button-dirty:not(:disabled) {
+  border-color: rgb(var(--theme-brand));
+  color: rgb(var(--theme-brand));
+}
+
+.flatnotes-open-file-editor {
+  display: block;
+  width: 100%;
+  min-height: min(68vh, 44rem);
+  resize: vertical;
+  border: 1px solid rgb(var(--theme-border));
+  border-radius: 6px;
+  padding: 1rem;
+  color: rgb(var(--theme-text));
+  background-color: rgb(var(--theme-background) / 0.82);
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  outline: none;
+}
+
+.flatnotes-open-file-editor:focus {
+  border-color: rgb(var(--theme-text-muted));
+  background-color: rgb(var(--theme-background));
 }
 
 :deep(.flatnotes-external-meta-line) {

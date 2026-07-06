@@ -32,7 +32,10 @@ export async function filesFromLaunchParams(launchParams) {
   const handles = launchParams.files || [];
   const files = [];
   for (const handle of handles) {
-    files.push(await handle.getFile());
+    files.push({
+      file: await handle.getFile(),
+      handle,
+    });
   }
   return files;
 }
