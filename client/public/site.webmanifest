@@ -5,7 +5,7 @@
   "scope": "/",
   "start_url": "/",
   "launch_handler": {
-    "client_mode": "navigate-new"
+    "client_mode": "focus-existing"
   },
   "file_handlers": [
     {
@@ -14,7 +14,7 @@
         "text/markdown": [".md"],
         "text/plain": [".txt", ".cfg", ".ini"]
       },
-      "launch_type": "multiple-clients"
+      "launch_type": "single-client"
     }
   ],
   "icons": [
