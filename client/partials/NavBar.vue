@@ -34,6 +34,7 @@ import {
   mdilMenu,
   mdilMonitor,
   mdilNoteMultiple,
+  mdilPlusBox,
   mdilPlusCircle,
 } from "@mdi/light-js";
 import { computed, ref } from "vue";
@@ -53,6 +54,14 @@ const router = useRouter();
 const emit = defineEmits(["toggleSearchModal"]);
 
 const baseMenuItems = [
+  {
+    label: "New Window",
+    icon: mdilPlusBox,
+    command: openNewWindow,
+  },
+  {
+    separator: true,
+  },
   {
     label: "Search",
     icon: mdilMagnify,
@@ -111,6 +120,13 @@ function logOut() {
 
 function toggleMenu(event) {
   menu.value.toggle(event);
+}
+
+function openNewWindow() {
+  const targetRoute = router.currentRoute.value.name === "openFile"
+    ? router.resolve({ name: "home" })
+    : router.resolve(router.currentRoute.value.fullPath || { name: "home" });
+  window.open(targetRoute.href, "_blank", "noopener");
 }
 
 function showLogOutButton() {
