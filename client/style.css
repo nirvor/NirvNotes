@@ -107,4 +107,30 @@
         -webkit-app-region: no-drag;
         app-region: no-drag;
     }
+
+    body.nirvnotes-native-host {
+        background-color: rgb(var(--theme-background));
+    }
+
+    body.nirvnotes-native-host .flatnotes-app-shell {
+        padding-top: 0.55rem;
+        padding-inline: 0.45rem;
+    }
+
+    body.nirvnotes-native-host .flatnotes-navbar-actions {
+        gap: 0.1rem;
+    }
+
+    body.nirvnotes-native-host .flatnotes-navbar-actions .flatnotes-custom-button {
+        min-width: 1.6rem;
+        padding-inline: 0.34rem;
+    }
+
+    body.nirvnotes-native-host .flatnotes-navbar-actions .flatnotes-icon-label-text {
+        display: none;
+    }
+
+    body.nirvnotes-native-host .flatnotes-navbar-actions .flatnotes-icon-label-icon {
+        margin-right: 0 !important;
+    }
 }

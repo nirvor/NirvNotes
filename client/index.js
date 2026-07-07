@@ -5,9 +5,11 @@ import { createApp } from "vue";
 import { createPinia } from "pinia";
 import {
   filesFromLaunchParams,
+  filesFromNativePayloads,
   publishExternalFileLaunch,
   publishExternalFileLaunchError,
   supportsFileHandlingLaunchQueue,
+  supportsNativeFileBridge,
 } from "./externalFiles.js";
 import { loadStoredToken } from "./tokenStorage.js";
 import router from "/router.js";
@@ -31,6 +33,50 @@ loadStoredToken();
 
 app.mount("#app");
 
+let nativeHostInitialized = false;
+
+async function publishNativeFiles(payloads, message) {
+  const files = filesFromNativePayloads(payloads || []);
+  if (!files.length) {
+    return false;
+  }
+
+  publishExternalFileLaunch(files, message || "Opened from NirvNotes client.");
+  await router.push({ name: "openFile" }).catch(() => {});
+  return true;
+}
+
+async function consumeNativeLaunchFiles() {
+  if (!supportsNativeFileBridge()) {
+    return;
+  }
+
+  document.body.classList.add("nirvnotes-native-host");
+  try {
+    const payloads = await window.pywebview.api.consume_launch_files();
+    await publishNativeFiles(payloads, "Opened from Windows client.");
+  } catch (error) {
+    publishExternalFileLaunchError("Could not read the local file.");
+    await router.push({ name: "openFile" }).catch(() => {});
+    console.error(error);
+  }
+}
+
+async function openNativeFilesFromDialog() {
+  if (!supportsNativeFileBridge()) {
+    return;
+  }
+
+  try {
+    const payloads = await window.pywebview.api.open_local_files();
+    await publishNativeFiles(payloads, "Loaded from Windows client.");
+  } catch (error) {
+    publishExternalFileLaunchError("Could not open the local file.");
+    await router.push({ name: "openFile" }).catch(() => {});
+    console.error(error);
+  }
+}
+
 function syncWindowControlsOverlayClass() {
   const overlay = navigator.windowControlsOverlay;
   document.body.classList.toggle(
@@ -45,6 +91,26 @@ if ("windowControlsOverlay" in navigator) {
     "geometrychange",
     syncWindowControlsOverlayClass,
   );
+}
+
+window.addEventListener(
+  "nirvnotes:open-native-file-dialog",
+  openNativeFilesFromDialog,
+);
+
+function initializeNativeHost() {
+  if (nativeHostInitialized || !supportsNativeFileBridge()) {
+    return;
+  }
+
+  nativeHostInitialized = true;
+  consumeNativeLaunchFiles();
+}
+
+if (supportsNativeFileBridge()) {
+  initializeNativeHost();
+} else {
+  window.addEventListener("pywebviewready", initializeNativeHost, { once: true });
 }
 
 if (supportsFileHandlingLaunchQueue()) {

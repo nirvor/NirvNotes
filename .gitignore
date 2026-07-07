@@ -97,6 +97,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv-pywebview/
 env/
 venv/
 ENV/
@@ -253,3 +254,6 @@ data/
 .playwright-cli/
 /output/playwright/
 /work/
+windows-client/.venv/
+windows-client/build/
+windows-client/dist/

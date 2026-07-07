@@ -130,6 +130,7 @@
       v-else-if="activeFile"
       :key="activeFile.key"
       :initialValue="activeFile.previewMarkdown"
+      :enhance-note-lead="false"
       :note-title="noteTitleForFile(activeFile)"
       class="toast-viewer min-w-0 max-w-full pb-4"
     />
@@ -176,6 +177,7 @@ import IconLabel from "../components/IconLabel.vue";
 import {
   externalFileLaunch,
   supportsFileHandlingLaunchQueue,
+  supportsNativeFileBridge,
 } from "../externalFiles.js";
 
 const ToastViewer = defineAsyncComponent(() =>
@@ -231,7 +233,7 @@ const saveButtonTitle = computed(() => {
 });
 
 onMounted(() => {
-  if (!supportsFileHandlingLaunchQueue()) {
+  if (!supportsFileHandlingLaunchQueue() && !supportsNativeFileBridge()) {
     showStatus(
       "This browser can preview files here, but Windows file opening needs the installed NirvNotes app.",
     );
@@ -242,6 +244,11 @@ watch(externalFileLaunch, consumeExternalLaunch, { immediate: true });
 
 async function chooseFile() {
   if (!confirmDiscardUnsavedChanges()) {
+    return;
+  }
+
+  if (supportsNativeFileBridge()) {
+    window.dispatchEvent(new CustomEvent("nirvnotes:open-native-file-dialog"));
     return;
   }
 

@@ -153,7 +153,7 @@ const activeTitle = computed(() =>
 );
 
 const showFloatingHandle = computed(
-  () => route.name !== "note" && route.name !== "new",
+  () => !["note", "new", "openFile"].includes(route.name),
 );
 
 const allNotesRoute = {
