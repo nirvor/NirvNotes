@@ -1,7 +1,6 @@
 param(
   [string]$Version = "",
-  [switch]$SkipAppBuild,
-  [switch]$NoSfx
+  [switch]$SkipAppBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,8 +12,6 @@ $ArtifactsDir = Join-Path $InstallerRoot "artifacts"
 $BuildDir = Join-Path $InstallerRoot "build"
 $StageDir = Join-Path $BuildDir "NirvNotes-win11"
 $AppDist = Join-Path $WindowsClientRoot "dist\NirvNotes"
-$SevenZip = "C:\Program Files\7-Zip\7z.exe"
-$SevenZipSfx = "C:\Program Files\7-Zip\7z.sfx"
 
 function Write-Step([string]$Text) {
   Write-Host ""
@@ -56,6 +53,23 @@ try {
   New-Item -ItemType Directory -Path (Join-Path $StageDir "app") -Force | Out-Null
   New-Item -ItemType Directory -Path $ArtifactsDir -Force | Out-Null
 
+  foreach ($StaleFile in Get-ChildItem -Path $ArtifactsDir -File -Filter "NirvNotes-Setup-*.exe" -ErrorAction SilentlyContinue) {
+    Remove-Item -LiteralPath $StaleFile.FullName -Force
+  }
+  foreach ($StaleFile in Get-ChildItem -Path $ArtifactsDir -File -Filter "NirvNotes-win11-*.zip" -ErrorAction SilentlyContinue) {
+    Remove-Item -LiteralPath $StaleFile.FullName -Force
+  }
+  foreach ($AccidentalExtract in @(
+    "app",
+    "Install-NirvNotes.cmd",
+    "Install-NirvNotes.ps1",
+    "Uninstall-NirvNotes.ps1",
+    "README.md",
+    "installer-manifest.json"
+  )) {
+    Remove-Item -LiteralPath (Join-Path $ArtifactsDir $AccidentalExtract) -Recurse -Force -ErrorAction SilentlyContinue
+  }
+
   Copy-Item -Path (Join-Path $AppDist "*") -Destination (Join-Path $StageDir "app") -Recurse -Force
   Copy-Item -Path (Join-Path $InstallerRoot "Install-NirvNotes.ps1") -Destination $StageDir -Force
   Copy-Item -Path (Join-Path $InstallerRoot "Install-NirvNotes.cmd") -Destination $StageDir -Force
@@ -78,44 +92,6 @@ try {
   Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue
   Compress-Archive -Path (Join-Path $StageDir "*") -DestinationPath $ZipPath -Force
   Write-Host $ZipPath
-
-  if (-not $NoSfx) {
-    if ((Test-Path $SevenZip) -and (Test-Path $SevenZipSfx)) {
-      Write-Step "Writing self-extracting EXE"
-      $Payload7z = Join-Path $BuildDir "NirvNotes-win11-$Version.7z"
-      $SfxConfig = Join-Path $BuildDir "sfx-config.txt"
-      $SetupExe = Join-Path $ArtifactsDir "NirvNotes-Setup-$Version.exe"
-      Remove-Item -LiteralPath $Payload7z, $SfxConfig, $SetupExe -Force -ErrorAction SilentlyContinue
-
-      Push-Location $StageDir
-      try {
-        & $SevenZip a -t7z $Payload7z ".\*" | Out-Null
-      } finally {
-        Pop-Location
-      }
-
-      @"
-;!@Install@!UTF-8!
-Title="NirvNotes Setup"
-BeginPrompt="Install NirvNotes for the current Windows user?"
-RunProgram="Install-NirvNotes.cmd"
-;!@InstallEnd@!
-"@ | Set-Content -Path $SfxConfig -Encoding UTF8
-
-      $Output = [System.IO.File]::Create($SetupExe)
-      try {
-        foreach ($Part in @($SevenZipSfx, $SfxConfig, $Payload7z)) {
-          $Bytes = [System.IO.File]::ReadAllBytes($Part)
-          $Output.Write($Bytes, 0, $Bytes.Length)
-        }
-      } finally {
-        $Output.Dispose()
-      }
-      Write-Host $SetupExe
-    } else {
-      Write-Host "7-Zip SFX module not found; ZIP package was still created." -ForegroundColor Yellow
-    }
-  }
 
   Write-Step "Done"
   Get-ChildItem $ArtifactsDir | Sort-Object LastWriteTime -Descending | Select-Object Name,Length,LastWriteTime

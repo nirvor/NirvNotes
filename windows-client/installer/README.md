@@ -5,7 +5,7 @@ It does not need admin rights.
 
 ## Quick install
 
-Double-click:
+Extract the ZIP, then double-click:
 
 ```text
 Install-NirvNotes.cmd
