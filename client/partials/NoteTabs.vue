@@ -1,6 +1,7 @@
 <template>
   <div class="flatnotes-note-drawer-shell print:hidden">
     <button
+      v-if="showFloatingHandle"
       class="flatnotes-note-drawer-handle"
       :class="{ 'flatnotes-note-drawer-handle-open': drawerVisible }"
       type="button"
@@ -149,6 +150,10 @@ let drawerGesture = null;
 
 const activeTitle = computed(() =>
   route.name === "note" && route.params.title ? String(route.params.title) : "",
+);
+
+const showFloatingHandle = computed(
+  () => route.name !== "note" && route.name !== "new",
 );
 
 const allNotesRoute = {
@@ -334,6 +339,10 @@ function pointerCancelHandler() {
   drawerGesture = null;
 }
 
+function toggleDrawerEventHandler() {
+  toggleDrawer();
+}
+
 watch(
   activeTitle,
   (title) => {
@@ -352,6 +361,10 @@ watch(
 );
 
 onMounted(() => {
+  window.addEventListener(
+    "flatnotes:toggle-note-drawer",
+    toggleDrawerEventHandler,
+  );
   document.addEventListener("keydown", keydownHandler);
   document.addEventListener("pointerdown", edgePointerDown);
   document.addEventListener("pointerup", edgePointerUp);
@@ -359,6 +372,10 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener(
+    "flatnotes:toggle-note-drawer",
+    toggleDrawerEventHandler,
+  );
   document.removeEventListener("keydown", keydownHandler);
   document.removeEventListener("pointerdown", edgePointerDown);
   document.removeEventListener("pointerup", edgePointerUp);
@@ -432,13 +449,13 @@ onBeforeUnmount(() => {
   inset: 0 0 0 auto;
   z-index: 69;
   display: flex;
-  width: min(20rem, 88vw);
+  width: min(17rem, 74vw);
   transform: translateX(100%);
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.62rem;
   overflow-y: auto;
-  padding: max(1rem, env(safe-area-inset-top)) 1rem
-    max(1rem, env(safe-area-inset-bottom));
+  padding: max(0.75rem, env(safe-area-inset-top)) 0.72rem
+    max(0.75rem, env(safe-area-inset-bottom));
   border-left: 1px solid rgb(var(--theme-border));
   color: rgb(var(--theme-text));
   background-color: rgb(var(--theme-background) / 0.97);
@@ -457,7 +474,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.45rem;
 }
 
 .flatnotes-note-drawer-kicker,
@@ -470,7 +487,7 @@ onBeforeUnmount(() => {
 }
 
 .flatnotes-note-drawer-title {
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 600;
 }
 
@@ -484,8 +501,8 @@ onBeforeUnmount(() => {
 }
 
 .flatnotes-note-drawer-close {
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2rem;
+  height: 2rem;
   border: 1px solid rgb(var(--theme-border));
   background-color: rgb(var(--theme-background-elevated));
 }
@@ -500,10 +517,10 @@ onBeforeUnmount(() => {
 
 .flatnotes-note-drawer-primary {
   display: inline-flex;
-  min-height: 2.75rem;
+  min-height: 2.25rem;
   align-items: center;
-  gap: 0.55rem;
-  padding: 0 0.75rem;
+  gap: 0.42rem;
+  padding: 0 0.58rem;
   color: rgb(var(--theme-text));
   text-decoration: none;
 }
@@ -516,27 +533,27 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  margin-bottom: 0.45rem;
+  margin-bottom: 0.28rem;
 }
 
 .flatnotes-note-drawer-list {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.28rem;
 }
 
 .flatnotes-note-drawer-recent-list {
-  gap: 0.25rem;
+  gap: 0.18rem;
 }
 
 .flatnotes-note-drawer-row {
   display: flex;
-  min-height: 2.6rem;
+  min-height: 2.15rem;
   min-width: 0;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0 0.35rem 0 0.7rem;
+  gap: 0.25rem;
+  padding: 0 0.22rem 0 0.52rem;
 }
 
 .flatnotes-note-drawer-row-active {
@@ -559,17 +576,17 @@ onBeforeUnmount(() => {
 
 .flatnotes-note-drawer-recent-link {
   display: block;
-  min-height: 1.3rem;
-  padding: 0.2rem 0.55rem;
-  font-size: 0.9rem;
-  line-height: 1.12;
+  min-height: 1.2rem;
+  padding: 0.13rem 0.42rem;
+  font-size: 0.84rem;
+  line-height: 1.08;
 }
 
 .flatnotes-note-drawer-row-close {
-  width: 2rem;
-  height: 2rem;
+  width: 1.62rem;
+  height: 1.62rem;
   flex: 0 0 auto;
-  font-size: 0.82rem;
+  font-size: 0.76rem;
 }
 
 .flatnotes-note-drawer-primary:hover,

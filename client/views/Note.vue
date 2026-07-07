@@ -53,14 +53,40 @@
     <!-- Header -->
     <div class="min-w-0 max-w-full">
       <!-- Title -->
-      <div class="min-w-0 max-w-full grow truncate text-2xl leading-[1.35em]">
-        <span v-show="!editMode" :title="note.title">{{ note.title }}</span>
-        <input
-          v-show="editMode"
-          v-model.trim="newTitle"
-          class="w-full bg-theme-background outline-none"
-          placeholder="Title"
-        />
+      <div class="flatnotes-note-title-row">
+        <div class="min-w-0 grow truncate text-2xl leading-[1.35em]">
+          <span v-show="!editMode" :title="note.title">{{ note.title }}</span>
+          <input
+            v-show="editMode"
+            v-model.trim="newTitle"
+            class="w-full bg-theme-background outline-none"
+            placeholder="Title"
+          />
+        </div>
+        <div
+          v-if="!editMode && !isNewNote"
+          class="flatnotes-note-title-actions print:hidden"
+        >
+          <button
+            v-if="note.title"
+            type="button"
+            class="flatnotes-note-title-action"
+            title="Copy note"
+            aria-label="Copy note"
+            @click="copyNote()"
+          >
+            <SvgIcon type="mdi" :path="mdiContentCopy" size="0.86rem" />
+          </button>
+          <button
+            type="button"
+            class="flatnotes-note-title-action"
+            title="Note switcher"
+            aria-label="Note switcher"
+            @click="toggleNoteDrawer"
+          >
+            <SvgIcon type="mdi" :path="mdilMenu" size="0.92rem" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -142,7 +168,8 @@ import {
   mdiNoteOffOutline,
   mdiTextBoxOutline,
 } from "@mdi/js";
-import { mdilContentSave, mdilDelete } from "@mdi/light-js";
+import { mdilContentSave, mdilDelete, mdilMenu } from "@mdi/light-js";
+import SvgIcon from "@jamescoyle/vue-icon";
 import Mousetrap from "mousetrap";
 import { useToast } from "primevue/usetoast";
 import {
@@ -1051,13 +1078,6 @@ function getCopyMenuItems() {
 function updateNoteActions() {
   globalStore.setNoteActions([
     {
-      key: "copy",
-      label: "Copy",
-      iconPath: mdiContentCopy,
-      visible: !editMode.value && !isNewNote.value && Boolean(note.value.title),
-      handler: () => copyNote(),
-    },
-    {
       key: "delete",
       label: "Delete",
       iconPath: mdilDelete,
@@ -1083,6 +1103,10 @@ function updateNoteActions() {
   globalStore.setNoteLayout({
     kind: noteLayoutKind.value,
   });
+}
+
+function toggleNoteDrawer() {
+  window.dispatchEvent(new CustomEvent("flatnotes:toggle-note-drawer"));
 }
 
 function isContentChanged() {
@@ -1130,6 +1154,41 @@ onUnmounted(() => globalStore.clearNoteActions());
 .flatnotes-note-shell {
   width: min(100%, 68rem);
   margin-inline: auto;
+}
+
+.flatnotes-note-title-row {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.flatnotes-note-title-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.flatnotes-note-title-action {
+  display: inline-flex;
+  width: 1.46rem;
+  height: 1.46rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(var(--theme-border));
+  border-radius: 6px;
+  padding: 0;
+  color: rgb(var(--theme-text-muted));
+  background-color: transparent;
+  touch-action: manipulation;
+}
+
+.flatnotes-note-title-action:hover,
+.flatnotes-note-title-action:focus-visible {
+  color: rgb(var(--theme-brand));
+  border-color: rgb(var(--theme-brand));
 }
 
 .flatnotes-note-shell-work {
