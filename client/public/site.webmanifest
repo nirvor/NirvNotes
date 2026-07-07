@@ -33,6 +33,7 @@
   ],
   "theme_color": "#20252B",
   "background_color": "#20252B",
+  "display_override": ["window-controls-overlay", "standalone"],
   "display": "standalone",
   "categories": ["productivity", "utilities"]
 }

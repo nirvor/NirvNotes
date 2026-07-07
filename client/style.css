@@ -80,4 +80,31 @@
         --theme-shadow: none;
         --theme-border: 94 107 128;
     }
+
+    body.flatnotes-window-controls-overlay {
+        padding-top: env(titlebar-area-height, 0px);
+    }
+
+    body.flatnotes-window-controls-overlay::before {
+        content: "";
+        position: fixed;
+        top: env(titlebar-area-y, 0px);
+        left: env(titlebar-area-x, 0px);
+        z-index: 10000;
+        width: env(titlebar-area-width, 100vw);
+        height: env(titlebar-area-height, 0px);
+        background: rgb(var(--theme-background));
+        -webkit-app-region: drag;
+        app-region: drag;
+    }
+
+    body.flatnotes-window-controls-overlay button,
+    body.flatnotes-window-controls-overlay a,
+    body.flatnotes-window-controls-overlay input,
+    body.flatnotes-window-controls-overlay select,
+    body.flatnotes-window-controls-overlay textarea,
+    body.flatnotes-window-controls-overlay [role="button"] {
+        -webkit-app-region: no-drag;
+        app-region: no-drag;
+    }
 }

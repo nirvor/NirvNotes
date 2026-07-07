@@ -31,6 +31,22 @@ loadStoredToken();
 
 app.mount("#app");
 
+function syncWindowControlsOverlayClass() {
+  const overlay = navigator.windowControlsOverlay;
+  document.body.classList.toggle(
+    "flatnotes-window-controls-overlay",
+    Boolean(overlay?.visible),
+  );
+}
+
+if ("windowControlsOverlay" in navigator) {
+  syncWindowControlsOverlayClass();
+  navigator.windowControlsOverlay.addEventListener(
+    "geometrychange",
+    syncWindowControlsOverlayClass,
+  );
+}
+
 if (supportsFileHandlingLaunchQueue()) {
   window.launchQueue.setConsumer(async (launchParams) => {
     try {
