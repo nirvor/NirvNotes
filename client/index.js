@@ -107,10 +107,19 @@ function initializeNativeHost() {
   consumeNativeLaunchFiles();
 }
 
+function scheduleNativeHostInitialization() {
+  window.setTimeout(initializeNativeHost, 250);
+}
+
+window.addEventListener("pywebviewready", scheduleNativeHostInitialization, {
+  once: true,
+});
+
 if (supportsNativeFileBridge()) {
-  initializeNativeHost();
-} else {
-  window.addEventListener("pywebviewready", initializeNativeHost, { once: true });
+  document.body.classList.add("nirvnotes-native-host");
+  window.addEventListener("load", scheduleNativeHostInitialization, {
+    once: true,
+  });
 }
 
 if (supportsFileHandlingLaunchQueue()) {
