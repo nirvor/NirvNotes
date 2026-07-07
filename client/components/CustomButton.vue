@@ -1,6 +1,6 @@
 <template>
   <button
-    class="text-nowrap rounded px-1.5 py-0.5 text-[0.94rem]"
+    class="flatnotes-custom-button text-nowrap rounded px-1.5 py-0.5 text-[0.94rem]"
     :class="{
       'bg-theme-background text-theme-text-muted hover:bg-theme-background-elevated':
         style === 'subtle',
@@ -11,6 +11,8 @@
       'border border-theme-success text-theme-success hover:bg-theme-success/10':
         style === 'success',
     }"
+    :title="label"
+    :aria-label="label"
   >
     <slot></slot>
     <IconLabel :iconPath="iconPath" :iconSize="iconSize" :label="label" />
@@ -33,3 +35,17 @@ defineProps({
   },
 });
 </script>
+
+<style scoped>
+.flatnotes-custom-button {
+  min-width: 0;
+}
+
+@media (max-width: 560px) {
+  .flatnotes-custom-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+</style>

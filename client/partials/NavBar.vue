@@ -1,6 +1,8 @@
 <template>
   <nav class="mb-2 flex justify-end align-top md:mb-3">
-    <div class="flex grow flex-wrap items-center justify-end gap-1">
+    <div
+      class="flatnotes-navbar-actions flex grow flex-wrap items-center justify-end gap-1"
+    >
       <template v-for="action in noteActions" :key="action.key">
         <CustomButton
           v-if="action.visible !== false"
@@ -135,3 +137,24 @@ function showLogOutButton() {
   );
 }
 </script>
+
+<style scoped>
+@media (max-width: 560px) {
+  .flatnotes-navbar-actions {
+    gap: 0.12rem;
+  }
+
+  .flatnotes-navbar-actions :deep(.flatnotes-custom-button) {
+    min-width: 1.75rem;
+    padding-inline: 0.42rem;
+  }
+
+  .flatnotes-navbar-actions :deep(.flatnotes-icon-label-text) {
+    display: none;
+  }
+
+  .flatnotes-navbar-actions :deep(.flatnotes-icon-label-icon) {
+    margin-right: 0 !important;
+  }
+}
+</style>
