@@ -32,7 +32,7 @@
 import Mousetrap from "mousetrap";
 import "mousetrap/plugins/global-bind/mousetrap-global-bind";
 import { useToast } from "primevue/usetoast";
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { RouterView, useRoute } from "vue-router";
 
 import { apiErrorHandler, getConfig } from "./api.js";
@@ -76,16 +76,20 @@ Mousetrap.bindGlobal("ctrl+alt+h", () => {
   }
 });
 
-getConfig()
-  .then((data) => {
-    globalStore.config = data;
-    loadingIndicator.value.setLoaded();
-    warmCommonNoteViews();
-  })
-  .catch((error) => {
-    apiErrorHandler(error, toast);
-    loadingIndicator.value.setFailed();
-  });
+onMounted(loadInitialConfig);
+
+function loadInitialConfig() {
+  getConfig()
+    .then((data) => {
+      globalStore.config = data;
+      loadingIndicator.value?.setLoaded();
+      warmCommonNoteViews();
+    })
+    .catch((error) => {
+      apiErrorHandler(error, toast);
+      loadingIndicator.value?.setFailed();
+    });
+}
 
 const showNavBar = computed(() => {
   return route.name !== "login";
