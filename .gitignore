@@ -257,3 +257,5 @@ data/
 windows-client/.venv/
 windows-client/build/
 windows-client/dist/
+windows-client/installer/build/
+windows-client/installer/artifacts/

@@ -11,6 +11,16 @@ $Entry = Join-Path $PSScriptRoot "nirvnotes_client.py"
 $Dist = Join-Path $PSScriptRoot "dist"
 $Build = Join-Path $PSScriptRoot "build"
 
+Get-CimInstance Win32_Process |
+  Where-Object {
+    $_.Name -eq "NirvNotes.exe" -or
+    ($_.Name -eq "msedgewebview2.exe" -and $_.CommandLine -like "*NirvNotes.exe*")
+  } |
+  ForEach-Object {
+    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+Start-Sleep -Seconds 2
+
 if (!(Test-Path $Python)) {
   python -m venv $Venv
   & $Python -m pip install --upgrade pip
