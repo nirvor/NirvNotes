@@ -208,7 +208,6 @@ class LocalProxyHandler(BaseHTTPRequestHandler):
             for key, value in self.headers.items()
             if key.lower() not in HOP_BY_HOP_HEADERS
         }
-        headers["Accept-Encoding"] = "identity"
 
         upstream_request = request.Request(
             upstream_url,
@@ -240,7 +239,6 @@ class LocalProxyHandler(BaseHTTPRequestHandler):
                 continue
             self.send_header(key, value)
         self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(payload)
 

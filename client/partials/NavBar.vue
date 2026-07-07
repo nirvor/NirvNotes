@@ -3,7 +3,7 @@
     <div
       class="flatnotes-navbar-actions flex grow flex-wrap items-center justify-end gap-1"
     >
-      <template v-for="action in noteActions" :key="action.key">
+      <template v-for="action in leadingNoteActions" :key="action.key">
         <CustomButton
           v-if="action.visible !== false"
           :label="action.label"
@@ -22,14 +22,39 @@
       <RouterLink v-if="showNewButton" :to="{ name: 'new' }">
         <CustomButton :iconPath="mdilPlusCircle" label="New Note" />
       </RouterLink>
+      <!-- Note Switcher -->
+      <CustomButton
+        v-if="showNoteSwitcherButton"
+        :iconPath="mdiBookMultipleOutline"
+        label="Notes"
+        class="flatnotes-navbar-icon-only"
+        @click="toggleNoteDrawer"
+      />
       <!-- Menu -->
       <CustomButton :iconPath="mdilMenu" label="Menu" @click="toggleMenu" />
       <PrimeMenu ref="menu" :model="menuItems" :popup="true" />
+      <template v-for="action in trailingNoteActions" :key="action.key">
+        <CustomButton
+          v-if="action.visible !== false"
+          :label="action.label"
+          :iconPath="action.iconPath"
+          :style="action.style || 'subtle'"
+          class="relative"
+          :class="{ 'flatnotes-navbar-icon-only': action.iconOnly }"
+          @click="action.handler"
+        >
+          <div
+            v-if="action.unsaved"
+            class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-theme-brand"
+          ></div>
+        </CustomButton>
+      </template>
     </div>
   </nav>
 </template>
 
 <script setup>
+import { mdiBookMultipleOutline } from "@mdi/js";
 import {
   mdilLogout,
   mdilMagnify,
@@ -112,7 +137,19 @@ const showNewButton = computed(() => {
   return globalStore.config.authType !== authTypes.readOnly;
 });
 
-const noteActions = computed(() => globalStore.noteActions);
+const noteActions = computed(() => globalStore.noteActions || []);
+
+const leadingNoteActions = computed(() =>
+  noteActions.value.filter((action) => action.placement !== "end"),
+);
+
+const trailingNoteActions = computed(() =>
+  noteActions.value.filter((action) => action.placement === "end"),
+);
+
+const showNoteSwitcherButton = computed(() => {
+  return globalStore.config.authType != null;
+});
 
 function logOut() {
   clearStoredToken();
@@ -122,6 +159,10 @@ function logOut() {
 
 function toggleMenu(event) {
   menu.value.toggle(event);
+}
+
+function toggleNoteDrawer() {
+  window.dispatchEvent(new CustomEvent("flatnotes:toggle-note-drawer"));
 }
 
 function openNewWindow() {
@@ -156,5 +197,23 @@ function showLogOutButton() {
   .flatnotes-navbar-actions :deep(.flatnotes-icon-label-icon) {
     margin-right: 0 !important;
   }
+}
+
+.flatnotes-navbar-actions :deep(.flatnotes-navbar-icon-only) {
+  display: inline-flex;
+  min-width: 1.78rem;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 0.42rem;
+}
+
+.flatnotes-navbar-actions
+  :deep(.flatnotes-navbar-icon-only .flatnotes-icon-label-text) {
+  display: none;
+}
+
+.flatnotes-navbar-actions
+  :deep(.flatnotes-navbar-icon-only .flatnotes-icon-label-icon) {
+  margin-right: 0 !important;
 }
 </style>

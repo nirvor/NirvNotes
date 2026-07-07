@@ -9,6 +9,8 @@ import { onMounted, ref, watch } from "vue";
 import baseOptions from "./baseOptions.js";
 import extendedAutolinks from "./extendedAutolinks.js";
 
+let renderEnhancementsPromise = null;
+
 const props = defineProps({
   initialValue: String,
   enhanceNoteLead: {
@@ -21,7 +23,8 @@ const props = defineProps({
 });
 
 const viewerElement = ref();
-let renderEnhancementsPromise = null;
+let viewer = null;
+let enhancementRun = 0;
 
 function loadRenderEnhancements() {
   if (!renderEnhancementsPromise) {
@@ -31,19 +34,27 @@ function loadRenderEnhancements() {
   return renderEnhancementsPromise;
 }
 
-onMounted(async () => {
-  new Viewer({
-    ...baseOptions,
-    extendedAutolinks,
-    el: viewerElement.value,
-    initialValue: props.initialValue,
-  });
+async function enhance() {
+  const run = ++enhancementRun;
   const { enhanceRenderedMarkdown } = await loadRenderEnhancements();
+  if (run !== enhancementRun || !viewerElement.value) {
+    return;
+  }
   await enhanceRenderedMarkdown(viewerElement.value, {
     noteLead: props.enhanceNoteLead,
     noteTitle: props.noteTitle,
     taskList: getTaskListOptions(),
   });
+}
+
+onMounted(async () => {
+  viewer = new Viewer({
+    ...baseOptions,
+    extendedAutolinks,
+    el: viewerElement.value,
+    initialValue: props.initialValue,
+  });
+  await enhance();
 });
 
 function getTaskListOptions() {
@@ -52,6 +63,17 @@ function getTaskListOptions() {
     onToggle: props.taskCheckboxToggleHandler,
   };
 }
+
+watch(
+  () => props.initialValue,
+  async (value) => {
+    if (!viewer) {
+      return;
+    }
+    viewer.setMarkdown(value || "");
+    await enhance();
+  },
+);
 
 watch(
   () => props.taskCheckboxesDisabled,

@@ -13,8 +13,8 @@
     >
       <SvgIcon
         type="mdi"
-        :path="drawerVisible ? mdilChevronRight : mdilMenu"
-        size="1.1rem"
+        :path="drawerVisible ? mdilChevronRight : mdiBookMultipleOutline"
+        size="1rem"
       />
     </button>
 
@@ -120,10 +120,10 @@
 
 <script setup>
 import SvgIcon from "@jamescoyle/vue-icon";
+import { mdiBookMultipleOutline } from "@mdi/js";
 import {
   mdilChevronRight,
   mdilClock,
-  mdilMenu,
   mdilNoteMultiple,
 } from "@mdi/light-js";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -134,6 +134,7 @@ import { params, searchSortOptions } from "../constants.js";
 
 const maxOpenTabs = 7;
 const maxRecentNotes = 14;
+const serverRecentTtlMs = 60000;
 const openTabsKey = "nirvNotesOpenTabs";
 const recentNotesKey = "nirvNotesRecentNotes";
 const legacyOpenTabsKey = "flatnotesOpenTabs";
@@ -144,6 +145,8 @@ const router = useRouter();
 const openTabs = ref(loadTitles(openTabsKey, legacyOpenTabsKey));
 const recentTitles = ref(loadTitles(recentNotesKey, legacyRecentNotesKey));
 const serverRecentTitles = ref([]);
+let serverRecentFetchedAt = 0;
+let serverRecentRequest = null;
 const drawerVisible = ref(false);
 let edgeGesture = null;
 let drawerGesture = null;
@@ -256,16 +259,31 @@ function closeDrawer() {
 }
 
 function loadServerRecentTitles() {
-  getNotes("*")
+  const now = Date.now();
+  if (
+    serverRecentTitles.value.length &&
+    now - serverRecentFetchedAt < serverRecentTtlMs
+  ) {
+    return serverRecentRequest || Promise.resolve();
+  }
+
+  if (serverRecentRequest) {
+    return serverRecentRequest;
+  }
+
+  serverRecentRequest = getNotes("*", "lastModified", "desc", maxRecentNotes)
     .then((notes) => {
-      serverRecentTitles.value = notes
-        .sort((a, b) => b.lastModified - a.lastModified)
-        .map((note) => note.title)
-        .slice(0, maxRecentNotes);
+      serverRecentTitles.value = notes.map((note) => note.title);
+      serverRecentFetchedAt = Date.now();
     })
     .catch((error) => {
       console.error(error);
+    })
+    .finally(() => {
+      serverRecentRequest = null;
     });
+
+  return serverRecentRequest;
 }
 
 function isTouchLike(event) {
@@ -394,8 +412,8 @@ onBeforeUnmount(() => {
   right: max(0rem, env(safe-area-inset-right));
   z-index: 70;
   display: inline-flex;
-  width: 3rem;
-  height: 2.75rem;
+  width: 2.55rem;
+  height: 2.35rem;
   transform: translateY(-50%);
   align-items: center;
   justify-content: center;
@@ -449,13 +467,13 @@ onBeforeUnmount(() => {
   inset: 0 0 0 auto;
   z-index: 69;
   display: flex;
-  width: min(17rem, 74vw);
+  width: min(15.5rem, 74vw);
   transform: translateX(100%);
   flex-direction: column;
-  gap: 0.62rem;
+  gap: 0.48rem;
   overflow-y: auto;
-  padding: max(0.75rem, env(safe-area-inset-top)) 0.72rem
-    max(0.75rem, env(safe-area-inset-bottom));
+  padding: max(0.65rem, env(safe-area-inset-top)) 0.58rem
+    max(0.65rem, env(safe-area-inset-bottom));
   border-left: 1px solid rgb(var(--theme-border));
   color: rgb(var(--theme-text));
   background-color: rgb(var(--theme-background) / 0.97);
@@ -487,7 +505,7 @@ onBeforeUnmount(() => {
 }
 
 .flatnotes-note-drawer-title {
-  font-size: 1rem;
+  font-size: 0.94rem;
   font-weight: 600;
 }
 
@@ -501,8 +519,8 @@ onBeforeUnmount(() => {
 }
 
 .flatnotes-note-drawer-close {
-  width: 2rem;
-  height: 2rem;
+  width: 1.7rem;
+  height: 1.7rem;
   border: 1px solid rgb(var(--theme-border));
   background-color: rgb(var(--theme-background-elevated));
 }
@@ -517,10 +535,10 @@ onBeforeUnmount(() => {
 
 .flatnotes-note-drawer-primary {
   display: inline-flex;
-  min-height: 2.25rem;
+  min-height: 1.95rem;
   align-items: center;
   gap: 0.42rem;
-  padding: 0 0.58rem;
+  padding: 0 0.5rem;
   color: rgb(var(--theme-text));
   text-decoration: none;
 }
@@ -533,14 +551,14 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  margin-bottom: 0.28rem;
+  margin-bottom: 0.2rem;
 }
 
 .flatnotes-note-drawer-list {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 0.28rem;
+  gap: 0.22rem;
 }
 
 .flatnotes-note-drawer-recent-list {
@@ -549,11 +567,11 @@ onBeforeUnmount(() => {
 
 .flatnotes-note-drawer-row {
   display: flex;
-  min-height: 2.15rem;
+  min-height: 1.86rem;
   min-width: 0;
   align-items: center;
   gap: 0.25rem;
-  padding: 0 0.22rem 0 0.52rem;
+  padding: 0 0.18rem 0 0.46rem;
 }
 
 .flatnotes-note-drawer-row-active {
@@ -576,15 +594,15 @@ onBeforeUnmount(() => {
 
 .flatnotes-note-drawer-recent-link {
   display: block;
-  min-height: 1.2rem;
-  padding: 0.13rem 0.42rem;
-  font-size: 0.84rem;
+  min-height: 1.05rem;
+  padding: 0.1rem 0.36rem;
+  font-size: 0.8rem;
   line-height: 1.08;
 }
 
 .flatnotes-note-drawer-row-close {
-  width: 1.62rem;
-  height: 1.62rem;
+  width: 1.42rem;
+  height: 1.42rem;
   flex: 0 0 auto;
   font-size: 0.76rem;
 }

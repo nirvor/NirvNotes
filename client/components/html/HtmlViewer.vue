@@ -10,6 +10,8 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 
+let renderEnhancementsPromise = null;
+
 const props = defineProps({
   initialValue: String,
   noteTitle: String,
@@ -18,7 +20,7 @@ const props = defineProps({
 });
 
 const viewerElement = ref();
-let renderEnhancementsPromise = null;
+let enhancementRun = 0;
 
 const html = computed(() =>
   sanitizeHtml(extractRenderableHtml(props.initialValue || "")),
@@ -81,8 +83,12 @@ function getTaskListOptions() {
 }
 
 async function enhance() {
+  const run = ++enhancementRun;
   await nextTick();
   const { enhanceRenderedMarkdown } = await loadRenderEnhancements();
+  if (run !== enhancementRun || !viewerElement.value) {
+    return;
+  }
   await enhanceRenderedMarkdown(viewerElement.value, {
     noteTitle: props.noteTitle,
     taskList: getTaskListOptions(),

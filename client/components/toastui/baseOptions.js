@@ -1,4 +1,16 @@
-import codeSyntaxHighlight from "@toast-ui/editor-plugin-code-syntax-highlight/dist/toastui-editor-plugin-code-syntax-highlight-all.js";
+import codeSyntaxHighlight from "@toast-ui/editor-plugin-code-syntax-highlight";
+import Prism from "prismjs";
+import "prismjs/components/prism-bash";
+import "prismjs/components/prism-diff";
+import "prismjs/components/prism-docker";
+import "prismjs/components/prism-ini";
+import "prismjs/components/prism-json";
+import "prismjs/components/prism-markdown";
+import "prismjs/components/prism-powershell";
+import "prismjs/components/prism-python";
+import "prismjs/components/prism-sql";
+import "prismjs/components/prism-typescript";
+import "prismjs/components/prism-yaml";
 import router from "../../router.js";
 
 const customHTMLRenderer = {
@@ -35,7 +47,7 @@ const customHTMLRenderer = {
 
 const baseOptions = {
   height: "100%",
-  plugins: [codeSyntaxHighlight],
+  plugins: [[codeSyntaxHighlight, { highlighter: Prism }]],
   customHTMLRenderer: customHTMLRenderer,
   usageStatistics: false,
 };
