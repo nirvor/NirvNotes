@@ -308,6 +308,12 @@ def save_window_state(state: dict[str, Any]) -> None:
         pass
 
 
+def persist_current_window_state(min_width: int, min_height: int) -> None:
+    state = find_current_process_window_rect(min_width, min_height)
+    if state:
+        save_window_state(state)
+
+
 def start_window_state_persistence(min_width: int, min_height: int) -> threading.Event:
     stop_event = threading.Event()
 
@@ -316,16 +322,37 @@ def start_window_state_persistence(min_width: int, min_height: int) -> threading
 
     def persist_loop() -> None:
         last_state: dict[str, Any] | None = None
-        time.sleep(0.8)
+        time.sleep(0.25)
         while not stop_event.is_set():
             state = find_current_process_window_rect(min_width, min_height)
             if state and state != last_state:
                 save_window_state(state)
                 last_state = state
-            stop_event.wait(0.75)
+            stop_event.wait(0.25)
 
     threading.Thread(target=persist_loop, daemon=True).start()
     return stop_event
+
+
+def register_window_state_events(
+    window: webview.Window,
+    min_width: int,
+    min_height: int,
+) -> None:
+    def persist() -> None:
+        persist_current_window_state(min_width, min_height)
+
+    def persist_soon() -> None:
+        timer = threading.Timer(0.2, persist)
+        timer.daemon = True
+        timer.start()
+
+    window.events.moved += persist_soon
+    window.events.resized += persist_soon
+    window.events.maximized += persist_soon
+    window.events.restored += persist_soon
+    window.events.closing += persist
+    window.events.closed += persist
 
 
 class LocalProxyServer(ThreadingHTTPServer):
@@ -571,6 +598,7 @@ def main() -> None:
 
     api.window = window
     window_ref["window"] = window
+    register_window_state_events(window, args.min_width, args.min_height)
     window_state_stop = start_window_state_persistence(args.min_width, args.min_height)
     try:
         webview.start(
