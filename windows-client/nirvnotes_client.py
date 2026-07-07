@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import ctypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 import os
 import socket
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
@@ -19,6 +22,7 @@ DEFAULT_URL = "https://racknerd-31fcf0d.tail38b5b3.ts.net:8092"
 APP_NAME = "NirvNotes"
 WEBVIEW_PROFILE = "WebView2"
 DEFAULT_PROXY_PORT = 31992
+WINDOW_STATE_FILE = "window-state.json"
 ALLOWED_EXTENSIONS = {".md", ".txt", ".cfg", ".ini"}
 TEXT_TYPES = {
     ".md": "text/markdown",
@@ -159,11 +163,169 @@ def resource_path(relative_path: str) -> str:
     return str(candidates[0])
 
 
-def app_data_dir() -> Path:
+def local_app_root() -> Path:
     root = Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-    path = root / "NirvNotes" / WEBVIEW_PROFILE
+    path = root / "NirvNotes"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def app_data_dir() -> Path:
+    path = local_app_root() / WEBVIEW_PROFILE
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def window_state_path() -> Path:
+    return local_app_root() / WINDOW_STATE_FILE
+
+
+class WinRect(ctypes.Structure):
+    _fields_ = [
+        ("left", ctypes.c_long),
+        ("top", ctypes.c_long),
+        ("right", ctypes.c_long),
+        ("bottom", ctypes.c_long),
+    ]
+
+
+def load_window_state(min_width: int, min_height: int) -> dict[str, Any]:
+    try:
+        state = json.loads(window_state_path().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    try:
+        width = max(int(state.get("width", 0)), min_width)
+        height = max(int(state.get("height", 0)), min_height)
+        x = int(state.get("x"))
+        y = int(state.get("y"))
+    except (TypeError, ValueError):
+        return {}
+
+    if not is_window_state_visible(x, y, width, height):
+        return {}
+
+    return {
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+        "maximized": bool(state.get("maximized", False)),
+    }
+
+
+def is_window_state_visible(x: int, y: int, width: int, height: int) -> bool:
+    if sys.platform != "win32":
+        return True
+
+    try:
+        user32 = ctypes.windll.user32
+        virtual_left = user32.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
+        virtual_top = user32.GetSystemMetrics(77)  # SM_YVIRTUALSCREEN
+        virtual_width = user32.GetSystemMetrics(78)  # SM_CXVIRTUALSCREEN
+        virtual_height = user32.GetSystemMetrics(79)  # SM_CYVIRTUALSCREEN
+    except Exception:
+        return True
+
+    virtual_right = virtual_left + virtual_width
+    virtual_bottom = virtual_top + virtual_height
+    margin = 80
+    return (
+        x < virtual_right - margin
+        and y < virtual_bottom - margin
+        and x + width > virtual_left + margin
+        and y + height > virtual_top + margin
+    )
+
+
+def find_current_process_window_rect(
+    min_width: int,
+    min_height: int,
+) -> dict[str, Any] | None:
+    if sys.platform != "win32":
+        return None
+
+    user32 = ctypes.windll.user32
+    current_pid = os.getpid()
+    candidates: list[dict[str, Any]] = []
+
+    enum_windows_proc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+    def callback(hwnd: int, _lparam: int) -> bool:
+        pid = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value != current_pid or not user32.IsWindowVisible(hwnd):
+            return True
+
+        rect = WinRect()
+        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return True
+
+        width = int(rect.right - rect.left)
+        height = int(rect.bottom - rect.top)
+        if width < min_width or height < min_height:
+            return True
+
+        scale = get_window_coordinate_scale(user32, hwnd)
+        candidates.append(
+            {
+                "x": int(round(rect.left * scale)),
+                "y": int(round(rect.top * scale)),
+                "width": int(round(width * scale)),
+                "height": int(round(height * scale)),
+                "maximized": bool(user32.IsZoomed(hwnd)),
+                "area": width * height,
+            },
+        )
+        return True
+
+    callback_fn = enum_windows_proc(callback)
+    user32.EnumWindows(callback_fn, 0)
+    if not candidates:
+        return None
+
+    state = max(candidates, key=lambda item: item["area"])
+    state.pop("area", None)
+    return state
+
+
+def get_window_coordinate_scale(user32: Any, hwnd: int) -> float:
+    try:
+        dpi = int(user32.GetDpiForWindow(hwnd))
+    except Exception:
+        dpi = 96
+    return 96 / dpi if dpi > 0 else 1.0
+
+
+def save_window_state(state: dict[str, Any]) -> None:
+    try:
+        path = window_state_path()
+        tmp_path = path.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        tmp_path.replace(path)
+    except OSError:
+        pass
+
+
+def start_window_state_persistence(min_width: int, min_height: int) -> threading.Event:
+    stop_event = threading.Event()
+
+    if sys.platform != "win32":
+        return stop_event
+
+    def persist_loop() -> None:
+        last_state: dict[str, Any] | None = None
+        time.sleep(0.8)
+        while not stop_event.is_set():
+            state = find_current_process_window_rect(min_width, min_height)
+            if state and state != last_state:
+                save_window_state(state)
+                last_state = state
+            stop_event.wait(0.75)
+
+    threading.Thread(target=persist_loop, daemon=True).start()
+    return stop_event
 
 
 class LocalProxyServer(ThreadingHTTPServer):
@@ -387,14 +549,18 @@ def main() -> None:
     window_ref: dict[str, webview.Window] = {}
     menu = build_menu(window_ref, browser_base_url) if args.native_menu else []
     icon_path = resource_path("client/assets/favicon.ico")
+    saved_window_state = load_window_state(args.min_width, args.min_height)
 
     window = webview.create_window(
         APP_NAME,
         start_url,
         js_api=api,
-        width=args.width,
-        height=args.height,
+        width=saved_window_state.get("width", args.width),
+        height=saved_window_state.get("height", args.height),
+        x=saved_window_state.get("x"),
+        y=saved_window_state.get("y"),
         min_size=(args.min_width, args.min_height),
+        maximized=saved_window_state.get("maximized", False),
         background_color="#20252B",
         text_select=True,
         zoomable=True,
@@ -405,16 +571,20 @@ def main() -> None:
 
     api.window = window
     window_ref["window"] = window
-    webview.start(
-        gui="edgechromium",
-        debug=args.debug,
-        private_mode=False,
-        storage_path=str(app_data_dir()),
-        icon=icon_path if Path(icon_path).exists() else None,
-        menu=menu if menu else None,
-    )
-    if proxy_server:
-        proxy_server.shutdown()
+    window_state_stop = start_window_state_persistence(args.min_width, args.min_height)
+    try:
+        webview.start(
+            gui="edgechromium",
+            debug=args.debug,
+            private_mode=False,
+            storage_path=str(app_data_dir()),
+            icon=icon_path if Path(icon_path).exists() else None,
+            menu=menu if menu else None,
+        )
+    finally:
+        window_state_stop.set()
+        if proxy_server:
+            proxy_server.shutdown()
 
 
 if __name__ == "__main__":
