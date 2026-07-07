@@ -41,7 +41,7 @@ but does not fight Windows UserChoice protection.
 ## Behavior
 
 - Loads the live NirvNotes VPS URL by default.
-- Uses persistent WebView2 storage under `%LOCALAPPDATA%\NirvNotes\WebView`.
+- Uses persistent WebView2 storage under `%LOCALAPPDATA%\NirvNotes\WebView2`.
 - Opens `.md`, `.txt`, `.cfg`, and `.ini` from Windows or the native menu.
 - Saves edited external files back to their original path when writable.
 - Does not import external files into the VPS note folder.

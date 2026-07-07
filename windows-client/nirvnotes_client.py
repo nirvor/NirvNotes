@@ -12,6 +12,7 @@ from webview.menu import Menu, MenuAction, MenuSeparator
 
 DEFAULT_URL = "https://racknerd-31fcf0d.tail38b5b3.ts.net:8092"
 APP_NAME = "NirvNotes"
+WEBVIEW_PROFILE = "WebView2"
 ALLOWED_EXTENSIONS = {".md", ".txt", ".cfg", ".ini"}
 TEXT_TYPES = {
     ".md": "text/markdown",
@@ -142,7 +143,7 @@ def resource_path(relative_path: str) -> str:
 
 def app_data_dir() -> Path:
     root = Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-    path = root / "NirvNotes" / "WebView"
+    path = root / "NirvNotes" / WEBVIEW_PROFILE
     path.mkdir(parents=True, exist_ok=True)
     return path
 

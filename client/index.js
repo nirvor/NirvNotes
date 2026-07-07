@@ -142,6 +142,14 @@ if (supportsFileHandlingLaunchQueue()) {
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
+    if (
+      supportsNativeFileBridge() ||
+      window.pywebview ||
+      document.body.classList.contains("nirvnotes-native-host")
+    ) {
+      return;
+    }
+
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   });
 }
