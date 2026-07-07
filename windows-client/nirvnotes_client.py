@@ -162,7 +162,7 @@ def parse_args() -> argparse.Namespace:
 
 def build_url(base_url: str, files: list[str]) -> str:
     base_url = base_url.rstrip("/") or DEFAULT_URL
-    return f"{base_url}/open-file" if files else base_url
+    return f"{base_url}/open-file?nativeLaunch=1" if files else base_url
 
 
 def run_js(window: webview.Window, script: str) -> None:

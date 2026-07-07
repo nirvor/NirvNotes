@@ -104,7 +104,11 @@ function initializeNativeHost() {
   }
 
   nativeHostInitialized = true;
-  consumeNativeLaunchFiles();
+  document.body.classList.add("nirvnotes-native-host");
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("nativeLaunch") === "1") {
+    consumeNativeLaunchFiles();
+  }
 }
 
 function scheduleNativeHostInitialization() {
