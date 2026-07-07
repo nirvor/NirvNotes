@@ -1,5 +1,5 @@
 <template>
-  <nav class="mb-3 flex justify-end align-top md:mb-4">
+  <nav class="mb-2 flex justify-end align-top md:mb-3">
     <div class="flex grow flex-wrap items-center justify-end gap-1">
       <template v-for="action in noteActions" :key="action.key">
         <CustomButton

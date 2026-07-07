@@ -78,12 +78,12 @@ router.afterEach((to) => {
   let title = "NirvNotes";
   if (to.name === "note") {
     if (to.params.title) {
-      title = `${to.params.title} - ${title}`;
+      title = String(to.params.title);
     } else {
-      title = "New Note - " + title;
+      title = "New Note";
     }
   } else if (to.name === "openFile") {
-    title = "Open File - " + title;
+    title = "Open File";
   }
   document.title = title;
 });

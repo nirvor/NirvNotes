@@ -1,7 +1,7 @@
 <template>
   <LoadingIndicator
     ref="loadingIndicator"
-    class="flatnotes-app-shell container mx-auto flex min-h-screen w-full min-w-0 max-w-full flex-col px-2 py-4 print:max-w-full"
+    class="flatnotes-app-shell container mx-auto flex min-h-screen w-full min-w-0 max-w-full flex-col px-1.5 py-3 print:max-w-full"
     :class="{
       'flatnotes-app-shell-note': route.name === 'note' || route.name === 'new',
       'flatnotes-app-shell-dashboard': isDashboardRoute,
