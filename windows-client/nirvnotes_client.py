@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
+import socket
 import sys
+import threading
 from pathlib import Path
 from typing import Any
+from urllib import error, parse, request
 
 import webview
 from webview.menu import Menu, MenuAction, MenuSeparator
@@ -19,6 +24,18 @@ TEXT_TYPES = {
     ".txt": "text/plain",
     ".cfg": "text/plain",
     ".ini": "text/plain",
+}
+HOP_BY_HOP_HEADERS = {
+    "connection",
+    "content-length",
+    "host",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
 }
 
 
@@ -148,6 +165,107 @@ def app_data_dir() -> Path:
     return path
 
 
+class LocalProxyServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(self, server_address: tuple[str, int], upstream_base_url: str) -> None:
+        super().__init__(server_address, LocalProxyHandler)
+        self.upstream_base_url = upstream_base_url.rstrip("/")
+
+
+class LocalProxyHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self) -> None:
+        self._proxy()
+
+    def do_POST(self) -> None:
+        self._proxy()
+
+    def do_PUT(self) -> None:
+        self._proxy()
+
+    def do_PATCH(self) -> None:
+        self._proxy()
+
+    def do_DELETE(self) -> None:
+        self._proxy()
+
+    def do_OPTIONS(self) -> None:
+        self._proxy()
+
+    def log_message(self, format: str, *args: Any) -> None:
+        return
+
+    def _proxy(self) -> None:
+        upstream_base_url = self.server.upstream_base_url  # type: ignore[attr-defined]
+        upstream_url = f"{upstream_base_url}{self.path}"
+        content_length = int(self.headers.get("Content-Length", "0") or "0")
+        body = self.rfile.read(content_length) if content_length else None
+        headers = {
+            key: value
+            for key, value in self.headers.items()
+            if key.lower() not in HOP_BY_HOP_HEADERS
+        }
+        headers["Accept-Encoding"] = "identity"
+
+        upstream_request = request.Request(
+            upstream_url,
+            data=body,
+            headers=headers,
+            method=self.command,
+        )
+        try:
+            with request.urlopen(upstream_request, timeout=30) as response:
+                self._send_upstream_response(response.status, response.headers, response.read())
+        except error.HTTPError as response:
+            self._send_upstream_response(response.code, response.headers, response.read())
+        except Exception as exc:
+            payload = f"NirvNotes local proxy could not reach upstream: {exc}".encode(
+                "utf-8",
+                errors="replace",
+            )
+            self.send_response(502)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(payload)
+
+    def _send_upstream_response(self, status: int, headers: Any, payload: bytes) -> None:
+        self.send_response(status)
+        for key, value in headers.items():
+            if key.lower() in HOP_BY_HOP_HEADERS:
+                continue
+            self.send_header(key, value)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(payload)
+
+
+def find_free_port() -> int:
+    with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def should_proxy_url(url: str, direct: bool) -> bool:
+    if direct:
+        return False
+    parsed = parse.urlparse(url)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def start_local_proxy(upstream_base_url: str) -> tuple[str, LocalProxyServer]:
+    port = find_free_port()
+    server = LocalProxyServer(("127.0.0.1", port), upstream_base_url)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return f"http://127.0.0.1:{port}", server
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="NirvNotes Windows client")
     parser.add_argument("files", nargs="*", help="Optional local files to open")
@@ -156,6 +274,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--height", type=int, default=960)
     parser.add_argument("--min-width", type=int, default=360)
     parser.add_argument("--min-height", type=int, default=520)
+    parser.add_argument(
+        "--direct",
+        action="store_true",
+        help="Load the configured URL directly instead of through the local proxy.",
+    )
     parser.add_argument("--debug", action="store_true")
     return parser.parse_args()
 
@@ -235,9 +358,15 @@ def main() -> None:
     args = parse_args()
     file_store = NativeFileStore()
     api = NirvNotesApi(file_store, args.files)
-    start_url = build_url(args.url, args.files)
+    base_url = args.url.rstrip("/") or DEFAULT_URL
+    proxy_server: LocalProxyServer | None = None
+    browser_base_url = base_url
+    if should_proxy_url(base_url, args.direct):
+        browser_base_url, proxy_server = start_local_proxy(base_url)
+
+    start_url = build_url(browser_base_url, args.files)
     window_ref: dict[str, webview.Window] = {}
-    menu = build_menu(window_ref, args.url)
+    menu = build_menu(window_ref, browser_base_url)
     icon_path = resource_path("client/assets/favicon.ico")
 
     window = webview.create_window(
@@ -265,6 +394,8 @@ def main() -> None:
         icon=icon_path if Path(icon_path).exists() else None,
         menu=menu,
     )
+    if proxy_server:
+        proxy_server.shutdown()
 
 
 if __name__ == "__main__":
