@@ -18,6 +18,7 @@ from webview.menu import Menu, MenuAction, MenuSeparator
 DEFAULT_URL = "https://racknerd-31fcf0d.tail38b5b3.ts.net:8092"
 APP_NAME = "NirvNotes"
 WEBVIEW_PROFILE = "WebView2"
+DEFAULT_PROXY_PORT = 31992
 ALLOWED_EXTENSIONS = {".md", ".txt", ".cfg", ".ini"}
 TEXT_TYPES = {
     ".md": "text/markdown",
@@ -256,9 +257,18 @@ def should_proxy_url(url: str, direct: bool) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
-def start_local_proxy(upstream_base_url: str) -> tuple[str, LocalProxyServer]:
-    port = find_free_port()
-    server = LocalProxyServer(("127.0.0.1", port), upstream_base_url)
+def start_local_proxy(
+    upstream_base_url: str,
+    preferred_port: int = DEFAULT_PROXY_PORT,
+) -> tuple[str, LocalProxyServer]:
+    port = preferred_port if preferred_port > 0 else find_free_port()
+    try:
+        server = LocalProxyServer(("127.0.0.1", port), upstream_base_url)
+    except OSError:
+        if preferred_port <= 0:
+            raise
+        port = find_free_port()
+        server = LocalProxyServer(("127.0.0.1", port), upstream_base_url)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return f"http://127.0.0.1:{port}", server
@@ -273,11 +283,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-width", type=int, default=360)
     parser.add_argument("--min-height", type=int, default=520)
     parser.add_argument(
+        "--proxy-port",
+        type=int,
+        default=DEFAULT_PROXY_PORT,
+        help="Stable local proxy port. Use 0 to request a random free port.",
+    )
+    parser.add_argument(
         "--direct",
         action="store_true",
         help="Load the configured URL directly instead of through the local proxy.",
     )
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument(
+        "--native-menu",
+        action="store_true",
+        help="Show the pywebview native menu bar.",
+    )
     return parser.parse_args()
 
 
@@ -360,11 +381,11 @@ def main() -> None:
     proxy_server: LocalProxyServer | None = None
     browser_base_url = base_url
     if should_proxy_url(base_url, args.direct):
-        browser_base_url, proxy_server = start_local_proxy(base_url)
+        browser_base_url, proxy_server = start_local_proxy(base_url, args.proxy_port)
 
     start_url = build_url(browser_base_url, args.files)
     window_ref: dict[str, webview.Window] = {}
-    menu = build_menu(window_ref, browser_base_url)
+    menu = build_menu(window_ref, browser_base_url) if args.native_menu else []
     icon_path = resource_path("client/assets/favicon.ico")
 
     window = webview.create_window(
@@ -377,7 +398,7 @@ def main() -> None:
         background_color="#20252B",
         text_select=True,
         zoomable=True,
-        menu=menu,
+        menu=menu if menu else None,
     )
     if not window:
         raise RuntimeError("Could not create NirvNotes window.")
@@ -390,7 +411,7 @@ def main() -> None:
         private_mode=False,
         storage_path=str(app_data_dir()),
         icon=icon_path if Path(icon_path).exists() else None,
-        menu=menu,
+        menu=menu if menu else None,
     )
     if proxy_server:
         proxy_server.shutdown()

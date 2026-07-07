@@ -39,7 +39,9 @@ const failedIconPath = ref("");
 const failedMessage = ref("");
 const gracePeriodExpired = ref(false);
 
-// Don't show loading animation within the first 400ms.
+const loaderGracePeriodMs = 650;
+
+// Don't flash a loader for quick API and route transitions.
 onMounted(() => {
   startGracePeriodTimer();
 });
@@ -48,7 +50,7 @@ function startGracePeriodTimer() {
   gracePeriodExpired.value = false;
   setTimeout(() => {
     gracePeriodExpired.value = true;
-  }, 400);
+  }, loaderGracePeriodMs);
 }
 
 function setLoading() {

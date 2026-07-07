@@ -80,6 +80,7 @@ getConfig()
   .then((data) => {
     globalStore.config = data;
     loadingIndicator.value.setLoaded();
+    warmCommonNoteViews();
   })
   .catch((error) => {
     apiErrorHandler(error, toast);
@@ -119,6 +120,22 @@ function normalizeNoteTitle(value) {
 
 function toggleSearchModal() {
   isSearchModalVisible.value = !isSearchModalVisible.value;
+}
+
+function warmCommonNoteViews() {
+  const run = () => {
+    void Promise.all([
+      import("./components/html/HtmlViewer.vue"),
+      import("./components/toastui/ToastViewer.vue"),
+      import("./components/work/WorkNoteViewer.vue"),
+    ]).catch(() => {});
+  };
+
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(run, { timeout: 2200 });
+  } else {
+    window.setTimeout(run, 900);
+  }
 }
 
 loadTheme();

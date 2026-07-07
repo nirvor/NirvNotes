@@ -67,6 +67,7 @@ import {
 import { computed, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 
+import { clearApiCaches } from "../api.js";
 import CustomButton from "../components/CustomButton.vue";
 import PrimeMenu from "../components/PrimeMenu.vue";
 import { authTypes, params, searchSortOptions } from "../constants.js";
@@ -152,6 +153,7 @@ const showNoteSwitcherButton = computed(() => {
 });
 
 function logOut() {
+  clearApiCaches();
   clearStoredToken();
   localStorage.clear();
   router.push({ name: "login" });

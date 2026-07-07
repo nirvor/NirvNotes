@@ -126,6 +126,11 @@
       @keydown.meta.s.prevent="saveActiveFile"
     ></textarea>
 
+    <pre
+      v-else-if="activeFile && activeFile.previewMode === 'plain'"
+      class="flatnotes-open-file-plain-preview"
+    >{{ activeFile.draftContent }}</pre>
+
     <ToastViewer
       v-else-if="activeFile"
       :key="activeFile.key"
@@ -329,6 +334,7 @@ async function fileToPreview(selectedFile) {
   const content = await file.text();
   const extension = getExtension(file.name);
   const previewMarkdown = contentToPreviewMarkdown(content, extension, file.type);
+  const previewMode = isMarkdownFile(extension, file.type) ? "markdown" : "plain";
 
   return {
     key: `${file.name}-${file.size}-${file.lastModified}-${Math.random()
@@ -341,6 +347,7 @@ async function fileToPreview(selectedFile) {
     handle,
     content,
     draftContent: content,
+    previewMode,
     previewMarkdown,
     lastModified: file.lastModified,
     dirty: false,
@@ -363,10 +370,13 @@ function normalizeSelectedFile(selectedFile) {
 }
 
 function contentToPreviewMarkdown(content, extension, type) {
-  const isMarkdown = extension === "md" || type === "text/markdown";
-  return isMarkdown
+  return isMarkdownFile(extension, type)
     ? compactLeadingMarkdownMetadata(content)
     : fencedCode(content, codeLanguageForExtension(extension));
+}
+
+function isMarkdownFile(extension, type) {
+  return extension === "md" || type === "text/markdown";
 }
 
 function getExtension(filename = "") {
@@ -750,6 +760,22 @@ function showStatus(message, tone = "info") {
 .flatnotes-open-file-editor:focus {
   border-color: rgb(var(--theme-text-muted));
   background-color: rgb(var(--theme-background));
+}
+
+.flatnotes-open-file-plain-preview {
+  margin: 0;
+  min-height: min(58vh, 38rem);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  border-top: 1px solid rgb(var(--theme-border));
+  border-bottom: 1px solid rgb(var(--theme-border));
+  padding: 0.7rem 0;
+  color: rgb(var(--theme-text));
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 0.86rem;
+  line-height: 1.5;
 }
 
 :deep(.flatnotes-external-meta-line) {

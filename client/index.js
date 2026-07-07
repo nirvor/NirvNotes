@@ -34,6 +34,7 @@ loadStoredToken();
 app.mount("#app");
 
 let nativeHostInitialized = false;
+let nativeLaunchConsumptionInFlight = null;
 
 async function publishNativeFiles(payloads, message) {
   const files = filesFromNativePayloads(payloads || []);
@@ -48,18 +49,38 @@ async function publishNativeFiles(payloads, message) {
 
 async function consumeNativeLaunchFiles() {
   if (!supportsNativeFileBridge()) {
-    return;
+    return false;
   }
 
   document.body.classList.add("nirvnotes-native-host");
   try {
     const payloads = await window.pywebview.api.consume_launch_files();
-    await publishNativeFiles(payloads, "Opened from Windows client.");
+    return await publishNativeFiles(payloads, "Opened from Windows client.");
   } catch (error) {
     publishExternalFileLaunchError("Could not read the local file.");
     await router.push({ name: "openFile" }).catch(() => {});
     console.error(error);
+    return false;
   }
+}
+
+function routeWantsNativeLaunch() {
+  const route = router.currentRoute.value;
+  return route.name === "openFile" && route.query.nativeLaunch === "1";
+}
+
+function scheduleNativeLaunchFileConsumption() {
+  if (!supportsNativeFileBridge() || !routeWantsNativeLaunch()) {
+    return;
+  }
+
+  if (nativeLaunchConsumptionInFlight) {
+    return;
+  }
+
+  nativeLaunchConsumptionInFlight = consumeNativeLaunchFiles().finally(() => {
+    nativeLaunchConsumptionInFlight = null;
+  });
 }
 
 async function openNativeFilesFromDialog() {
@@ -105,10 +126,7 @@ function initializeNativeHost() {
 
   nativeHostInitialized = true;
   document.body.classList.add("nirvnotes-native-host");
-  const params = new URLSearchParams(window.location.search);
-  if (params.get("nativeLaunch") === "1") {
-    consumeNativeLaunchFiles();
-  }
+  scheduleNativeLaunchFileConsumption();
 }
 
 function scheduleNativeHostInitialization() {
@@ -117,6 +135,10 @@ function scheduleNativeHostInitialization() {
 
 window.addEventListener("pywebviewready", scheduleNativeHostInitialization, {
   once: true,
+});
+
+router.afterEach(() => {
+  window.setTimeout(scheduleNativeLaunchFileConsumption, 0);
 });
 
 if (supportsNativeFileBridge()) {
