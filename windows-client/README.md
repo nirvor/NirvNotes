@@ -44,6 +44,7 @@ but does not fight Windows UserChoice protection.
 - Uses a local loopback proxy by default so WebView2 does not load the Tailnet
   `.ts.net` TLS origin directly.
 - Uses persistent WebView2 storage under `%LOCALAPPDATA%\NirvNotes\WebView2`.
+- Writes startup diagnostics to `%LOCALAPPDATA%\NirvNotes\logs`.
 - Opens `.md`, `.txt`, `.cfg`, and `.ini` from Windows or the native menu.
 - Saves edited external files back to their original path when writable.
 - Does not import external files into the VPS note folder.

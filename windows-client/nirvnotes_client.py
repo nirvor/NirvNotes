@@ -5,6 +5,8 @@ import contextlib
 import ctypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 import os
 import socket
 import sys
@@ -23,6 +25,7 @@ APP_NAME = "NirvNotes"
 WEBVIEW_PROFILE = "WebView2"
 DEFAULT_PROXY_PORT = 31992
 WINDOW_STATE_FILE = "window-state.json"
+LOG_FILE = "nirvnotes-client.log"
 ALLOWED_EXTENSIONS = {".md", ".txt", ".cfg", ".ini"}
 TEXT_TYPES = {
     ".md": "text/markdown",
@@ -113,7 +116,7 @@ class NirvNotesApi:
     def __init__(self, file_store: NativeFileStore, launch_paths: list[str]) -> None:
         self._file_store = file_store
         self._pending_launch_files = file_store.payloads_for_paths(launch_paths)
-        self.window: webview.Window | None = None
+        self._window: webview.Window | None = None
 
     def consume_launch_files(self) -> list[dict[str, Any]]:
         payloads = self._pending_launch_files
@@ -121,10 +124,10 @@ class NirvNotesApi:
         return payloads
 
     def open_local_files(self) -> list[dict[str, Any]]:
-        if not self.window:
+        if not self._window:
             return []
 
-        paths = self.window.create_file_dialog(
+        paths = self._window.create_file_dialog(
             webview.OPEN_DIALOG,
             allow_multiple=True,
             file_types=("Text and Markdown (*.md;*.txt;*.cfg;*.ini)",),
@@ -168,6 +171,21 @@ def local_app_root() -> Path:
     path = root / "NirvNotes"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def setup_logging() -> None:
+    log_dir = local_app_root() / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(
+        log_dir / LOG_FILE,
+        maxBytes=256_000,
+        backupCount=3,
+        encoding="utf-8",
+    )
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(message)s"),
+    )
+    logging.basicConfig(level=logging.INFO, handlers=[handler])
 
 
 def app_data_dir() -> Path:
@@ -357,7 +375,7 @@ def register_window_state_events(
 
 class LocalProxyServer(ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    allow_reuse_address = False
 
     def __init__(self, server_address: tuple[str, int], upstream_base_url: str) -> None:
         super().__init__(server_address, LocalProxyHandler)
@@ -460,6 +478,7 @@ def start_local_proxy(
         server = LocalProxyServer(("127.0.0.1", port), upstream_base_url)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    logging.info("local proxy started port=%s upstream=%s", port, upstream_base_url)
     return f"http://127.0.0.1:{port}", server
 
 
@@ -494,6 +513,58 @@ def parse_args() -> argparse.Namespace:
 def build_url(base_url: str, files: list[str]) -> str:
     base_url = base_url.rstrip("/") or DEFAULT_URL
     return f"{base_url}/open-file?nativeLaunch=1" if files else base_url
+
+
+def startup_html() -> str:
+    return """
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: #20252b;
+        color: #f6f8fb;
+        font-family: "Segoe UI", system-ui, sans-serif;
+      }
+
+      body {
+        display: grid;
+        place-items: center;
+      }
+
+      .loader {
+        width: 42px;
+        height: 42px;
+        border: 3px solid rgba(154, 170, 196, 0.22);
+        border-top-color: #8fc7ff;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="loader" aria-label="Loading NirvNotes"></div>
+  </body>
+</html>
+""".strip()
+
+
+def load_start_url_after_gui(window: webview.Window, start_url: str) -> None:
+    logging.info("webview gui started")
+    time.sleep(0.15)
+    logging.info("loading start url %s", start_url)
+    window.load_url(start_url)
 
 
 def run_js(window: webview.Window, script: str) -> None:
@@ -563,6 +634,8 @@ def build_menu(window_ref: dict[str, webview.Window], base_url: str) -> list[Men
 
 
 def main() -> None:
+    setup_logging()
+    logging.info("process start pid=%s argv=%s", os.getpid(), sys.argv[1:])
     args = parse_args()
     file_store = NativeFileStore()
     api = NirvNotesApi(file_store, args.files)
@@ -573,6 +646,7 @@ def main() -> None:
         browser_base_url, proxy_server = start_local_proxy(base_url, args.proxy_port)
 
     start_url = build_url(browser_base_url, args.files)
+    logging.info("start url prepared %s", start_url)
     window_ref: dict[str, webview.Window] = {}
     menu = build_menu(window_ref, browser_base_url) if args.native_menu else []
     icon_path = resource_path("client/assets/favicon.ico")
@@ -580,7 +654,7 @@ def main() -> None:
 
     window = webview.create_window(
         APP_NAME,
-        start_url,
+        html=startup_html(),
         js_api=api,
         width=saved_window_state.get("width", args.width),
         height=saved_window_state.get("height", args.height),
@@ -596,12 +670,15 @@ def main() -> None:
     if not window:
         raise RuntimeError("Could not create NirvNotes window.")
 
-    api.window = window
+    logging.info("window created")
+    api._window = window
     window_ref["window"] = window
     register_window_state_events(window, args.min_width, args.min_height)
     window_state_stop = start_window_state_persistence(args.min_width, args.min_height)
     try:
         webview.start(
+            load_start_url_after_gui,
+            args=(window, start_url),
             gui="edgechromium",
             debug=args.debug,
             private_mode=False,
@@ -610,6 +687,7 @@ def main() -> None:
             menu=menu if menu else None,
         )
     finally:
+        logging.info("process shutdown")
         window_state_stop.set()
         if proxy_server:
             proxy_server.shutdown()
