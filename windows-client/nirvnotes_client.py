@@ -26,6 +26,8 @@ WEBVIEW_PROFILE = "WebView2"
 DEFAULT_PROXY_PORT = 31992
 WINDOW_STATE_FILE = "window-state.json"
 LOG_FILE = "nirvnotes-client.log"
+INSTANCE_DIR = "instances"
+HANDOFF_TIMEOUT_SECONDS = 1.0
 ALLOWED_EXTENSIONS = {".md", ".txt", ".cfg", ".ini"}
 TEXT_TYPES = {
     ".md": "text/markdown",
@@ -137,6 +139,21 @@ class NirvNotesApi:
     def save_native_file(self, file_id: str, content: str) -> dict[str, Any]:
         return self._file_store.save(file_id, content)
 
+    def open_external_paths(self, paths: list[str], browser_base_url: str) -> int:
+        payloads = self._file_store.payloads_for_paths(paths)
+        if not payloads:
+            return 0
+
+        self._pending_launch_files = payloads
+        if self._window:
+            timestamp = int(time.time() * 1000)
+            route = f"{browser_base_url.rstrip('/')}/open-file?nativeLaunch=1&handoff={timestamp}"
+            logging.info("loading external handoff route files=%s", len(payloads))
+            self._window.load_url(route)
+            show_current_process_window()
+
+        return len(payloads)
+
 
 def read_text(path: Path) -> tuple[str, str]:
     raw = path.read_bytes()
@@ -190,6 +207,12 @@ def setup_logging() -> None:
 
 def app_data_dir() -> Path:
     path = local_app_root() / WEBVIEW_PROFILE
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def instance_dir() -> Path:
+    path = local_app_root() / INSTANCE_DIR
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -306,6 +329,56 @@ def find_current_process_window_rect(
     state = max(candidates, key=lambda item: item["area"])
     state.pop("area", None)
     return state
+
+
+def current_process_has_foreground_window() -> bool:
+    if sys.platform != "win32":
+        return False
+
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return False
+
+        pid = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        return pid.value == os.getpid()
+    except Exception:
+        return False
+
+
+def show_current_process_window() -> None:
+    if sys.platform != "win32":
+        return
+
+    try:
+        user32 = ctypes.windll.user32
+        current_pid = os.getpid()
+        enum_windows_proc = ctypes.WINFUNCTYPE(
+            ctypes.c_bool,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        )
+        target_hwnd = ctypes.c_void_p()
+
+        def callback(hwnd: int, _lparam: int) -> bool:
+            pid = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value == current_pid and user32.IsWindowVisible(hwnd):
+                target_hwnd.value = hwnd
+                return False
+            return True
+
+        callback_fn = enum_windows_proc(callback)
+        user32.EnumWindows(callback_fn, 0)
+        if not target_hwnd.value:
+            return
+
+        user32.ShowWindow(target_hwnd.value, 9)  # SW_RESTORE
+        user32.SetForegroundWindow(target_hwnd.value)
+    except Exception:
+        logging.debug("could not focus NirvNotes window", exc_info=True)
 
 
 def get_window_coordinate_scale(user32: Any, hwnd: int) -> float:
@@ -482,6 +555,197 @@ def start_local_proxy(
     return f"http://127.0.0.1:{port}", server
 
 
+class HandoffServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = False
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        api: NirvNotesApi,
+        browser_base_url: str,
+    ) -> None:
+        super().__init__(server_address, HandoffHandler)
+        self.api = api
+        self.browser_base_url = browser_base_url
+
+
+class HandoffHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def do_POST(self) -> None:
+        if self.path != "/open-files":
+            self._send_json(404, {"ok": False, "error": "not_found"})
+            return
+
+        try:
+            content_length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(content_length) if content_length else b"{}"
+            payload = json.loads(body.decode("utf-8"))
+            paths = payload.get("files") if isinstance(payload, dict) else None
+            if not isinstance(paths, list):
+                raise ValueError("files must be a list")
+
+            clean_paths = [str(path) for path in paths if isinstance(path, str)]
+            opened = self.server.api.open_external_paths(  # type: ignore[attr-defined]
+                clean_paths,
+                self.server.browser_base_url,  # type: ignore[attr-defined]
+            )
+            if opened < 1:
+                self._send_json(422, {"ok": False, "error": "no_supported_files"})
+                return
+
+            self._send_json(200, {"ok": True, "opened": opened})
+        except Exception as exc:
+            logging.warning("external file handoff failed: %s", exc)
+            self._send_json(400, {"ok": False, "error": "bad_request"})
+
+    def log_message(self, format: str, *args: Any) -> None:
+        return
+
+    def _send_json(self, status: int, payload: dict[str, Any]) -> None:
+        encoded = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(encoded)
+
+
+def start_handoff_server(
+    api: NirvNotesApi,
+    browser_base_url: str,
+) -> tuple[HandoffServer, int]:
+    port = find_free_port()
+    server = HandoffServer(("127.0.0.1", port), api, browser_base_url)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    logging.info("handoff server started port=%s", port)
+    return server, port
+
+
+def start_instance_registration(command_port: int) -> threading.Event:
+    stop_event = threading.Event()
+    started_at = time.time()
+    record_path = instance_dir() / f"{os.getpid()}.json"
+    last_active = started_at
+
+    def write_record(seen_at: float, active_at: float) -> None:
+        record = {
+            "pid": os.getpid(),
+            "port": command_port,
+            "startedAt": started_at,
+            "lastSeen": seen_at,
+            "lastActive": active_at,
+        }
+        tmp_path = record_path.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        tmp_path.replace(record_path)
+
+    try:
+        write_record(started_at, last_active)
+    except OSError:
+        logging.debug("could not write initial NirvNotes instance record", exc_info=True)
+
+    def registration_loop() -> None:
+        nonlocal last_active
+        while not stop_event.is_set():
+            now = time.time()
+            if current_process_has_foreground_window():
+                last_active = now
+            try:
+                write_record(now, last_active)
+            except OSError:
+                logging.debug("could not write NirvNotes instance record", exc_info=True)
+            stop_event.wait(0.75)
+
+        with contextlib.suppress(OSError):
+            record_path.unlink()
+
+    threading.Thread(target=registration_loop, daemon=True).start()
+    return stop_event
+
+
+def handoff_files_to_existing_instance(paths: list[str]) -> bool:
+    if not paths:
+        return False
+
+    records = load_instance_records()
+    for record in records:
+        port = record.get("port")
+        if not isinstance(port, int):
+            continue
+
+        payload = json.dumps({"files": paths}).encode("utf-8")
+        handoff_request = request.Request(
+            f"http://127.0.0.1:{port}/open-files",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with request.urlopen(
+                handoff_request,
+                timeout=HANDOFF_TIMEOUT_SECONDS,
+            ) as response:
+                if 200 <= response.status < 300:
+                    logging.info(
+                        "handed off files to pid=%s port=%s count=%s",
+                        record.get("pid"),
+                        port,
+                        len(paths),
+                    )
+                    return True
+        except Exception:
+            remove_instance_record(record)
+
+    return False
+
+
+def load_instance_records() -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    now = time.time()
+    for path in instance_dir().glob("*.json"):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            with contextlib.suppress(OSError):
+                path.unlink()
+            continue
+
+        if not isinstance(record, dict) or record.get("pid") == os.getpid():
+            continue
+
+        last_seen = float(record.get("lastSeen", 0) or 0)
+        if now - last_seen > 20:
+            with contextlib.suppress(OSError):
+                path.unlink()
+            continue
+
+        record["_recordPath"] = str(path)
+        records.append(record)
+
+    records.sort(
+        key=lambda item: (
+            float(item.get("lastActive", 0) or 0),
+            float(item.get("lastSeen", 0) or 0),
+            float(item.get("startedAt", 0) or 0),
+        ),
+        reverse=True,
+    )
+    return records
+
+
+def remove_instance_record(record: dict[str, Any]) -> None:
+    raw_path = record.get("_recordPath")
+    if not raw_path:
+        return
+
+    with contextlib.suppress(OSError):
+        Path(str(raw_path)).unlink()
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="NirvNotes Windows client")
     parser.add_argument("files", nargs="*", help="Optional local files to open")
@@ -637,10 +901,16 @@ def main() -> None:
     setup_logging()
     logging.info("process start pid=%s argv=%s", os.getpid(), sys.argv[1:])
     args = parse_args()
+    if args.files and handoff_files_to_existing_instance(args.files):
+        logging.info("process exiting after external file handoff")
+        return
+
     file_store = NativeFileStore()
     api = NirvNotesApi(file_store, args.files)
     base_url = args.url.rstrip("/") or DEFAULT_URL
     proxy_server: LocalProxyServer | None = None
+    handoff_server: HandoffServer | None = None
+    instance_registration_stop: threading.Event | None = None
     browser_base_url = base_url
     if should_proxy_url(base_url, args.direct):
         browser_base_url, proxy_server = start_local_proxy(base_url, args.proxy_port)
@@ -673,6 +943,8 @@ def main() -> None:
     logging.info("window created")
     api._window = window
     window_ref["window"] = window
+    handoff_server, handoff_port = start_handoff_server(api, browser_base_url)
+    instance_registration_stop = start_instance_registration(handoff_port)
     register_window_state_events(window, args.min_width, args.min_height)
     window_state_stop = start_window_state_persistence(args.min_width, args.min_height)
     try:
@@ -689,6 +961,10 @@ def main() -> None:
     finally:
         logging.info("process shutdown")
         window_state_stop.set()
+        if instance_registration_stop:
+            instance_registration_stop.set()
+        if handoff_server:
+            handoff_server.shutdown()
         if proxy_server:
             proxy_server.shutdown()
 
