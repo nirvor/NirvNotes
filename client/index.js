@@ -83,6 +83,17 @@ function scheduleNativeLaunchFileConsumption() {
   });
 }
 
+async function consumeNativeLaunchFilesNow() {
+  if (nativeLaunchConsumptionInFlight) {
+    return nativeLaunchConsumptionInFlight;
+  }
+
+  nativeLaunchConsumptionInFlight = consumeNativeLaunchFiles().finally(() => {
+    nativeLaunchConsumptionInFlight = null;
+  });
+  return nativeLaunchConsumptionInFlight;
+}
+
 async function openNativeFilesFromDialog() {
   if (!supportsNativeFileBridge()) {
     return;
@@ -118,6 +129,12 @@ window.addEventListener(
   "nirvnotes:open-native-file-dialog",
   openNativeFilesFromDialog,
 );
+
+window.addEventListener("nirvnotes:consume-native-launch-files", () => {
+  consumeNativeLaunchFilesNow();
+});
+
+window.__nirvnotesConsumeNativeLaunchFiles = consumeNativeLaunchFilesNow;
 
 function initializeNativeHost() {
   if (nativeHostInitialized || !supportsNativeFileBridge()) {

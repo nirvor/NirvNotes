@@ -27,7 +27,10 @@ DEFAULT_PROXY_PORT = 31992
 WINDOW_STATE_FILE = "window-state.json"
 LOG_FILE = "nirvnotes-client.log"
 INSTANCE_DIR = "instances"
-HANDOFF_TIMEOUT_SECONDS = 1.0
+HANDOFF_TIMEOUT_SECONDS = 0.35
+INSTANCE_RECORD_MAX_AGE_SECONDS = 30
+INSTANCE_HEARTBEAT_SECONDS = 2.0
+WINDOW_STATE_PERSIST_SECONDS = 1.5
 ALLOWED_EXTENSIONS = {".md", ".txt", ".cfg", ".ini"}
 TEXT_TYPES = {
     ".md": "text/markdown",
@@ -65,6 +68,12 @@ class NativeFileStore:
             if payload:
                 payloads.append(payload)
         return payloads
+
+    def has_openable_path(self, paths: list[str]) -> bool:
+        for raw_path in paths:
+            if self._is_allowed(Path(raw_path).expanduser()):
+                return True
+        return False
 
     def save(self, file_id: str, content: str) -> dict[str, Any]:
         path = self._paths.get(file_id)
@@ -139,6 +148,9 @@ class NirvNotesApi:
     def save_native_file(self, file_id: str, content: str) -> dict[str, Any]:
         return self._file_store.save(file_id, content)
 
+    def has_openable_external_paths(self, paths: list[str]) -> bool:
+        return self._file_store.has_openable_path(paths)
+
     def open_external_paths(self, paths: list[str], browser_base_url: str) -> int:
         payloads = self._file_store.payloads_for_paths(paths)
         if not payloads:
@@ -148,9 +160,11 @@ class NirvNotesApi:
         if self._window:
             timestamp = int(time.time() * 1000)
             route = f"{browser_base_url.rstrip('/')}/open-file?nativeLaunch=1&handoff={timestamp}"
-            logging.info("loading external handoff route files=%s", len(payloads))
-            self._window.load_url(route)
-            show_current_process_window()
+            logging.info("dispatching external handoff files=%s", len(payloads))
+            if not dispatch_native_launch_consumption(self._window, route):
+                logging.info("native handoff dispatch unavailable; loading route")
+                self._window.load_url(route)
+            activate_current_process_window()
 
         return len(payloads)
 
@@ -348,7 +362,7 @@ def current_process_has_foreground_window() -> bool:
         return False
 
 
-def show_current_process_window() -> None:
+def activate_current_process_window() -> None:
     if sys.platform != "win32":
         return
 
@@ -375,7 +389,8 @@ def show_current_process_window() -> None:
         if not target_hwnd.value:
             return
 
-        user32.ShowWindow(target_hwnd.value, 9)  # SW_RESTORE
+        if user32.IsIconic(target_hwnd.value):
+            user32.ShowWindow(target_hwnd.value, 9)  # SW_RESTORE
         user32.SetForegroundWindow(target_hwnd.value)
     except Exception:
         logging.debug("could not focus NirvNotes window", exc_info=True)
@@ -413,13 +428,13 @@ def start_window_state_persistence(min_width: int, min_height: int) -> threading
 
     def persist_loop() -> None:
         last_state: dict[str, Any] | None = None
-        time.sleep(0.25)
+        time.sleep(WINDOW_STATE_PERSIST_SECONDS)
         while not stop_event.is_set():
             state = find_current_process_window_rect(min_width, min_height)
             if state and state != last_state:
                 save_window_state(state)
                 last_state = state
-            stop_event.wait(0.25)
+            stop_event.wait(WINDOW_STATE_PERSIST_SECONDS)
 
     threading.Thread(target=persist_loop, daemon=True).start()
     return stop_event
@@ -430,13 +445,20 @@ def register_window_state_events(
     min_width: int,
     min_height: int,
 ) -> None:
+    timer_ref: dict[str, threading.Timer | None] = {"timer": None}
+    timer_lock = threading.Lock()
+
     def persist() -> None:
         persist_current_window_state(min_width, min_height)
 
     def persist_soon() -> None:
-        timer = threading.Timer(0.2, persist)
-        timer.daemon = True
-        timer.start()
+        with timer_lock:
+            if timer_ref["timer"]:
+                timer_ref["timer"].cancel()
+            timer = threading.Timer(0.25, persist)
+            timer.daemon = True
+            timer_ref["timer"] = timer
+            timer.start()
 
     window.events.moved += persist_soon
     window.events.resized += persist_soon
@@ -587,15 +609,23 @@ class HandoffHandler(BaseHTTPRequestHandler):
                 raise ValueError("files must be a list")
 
             clean_paths = [str(path) for path in paths if isinstance(path, str)]
-            opened = self.server.api.open_external_paths(  # type: ignore[attr-defined]
+            if not self.server.api.has_openable_external_paths(  # type: ignore[attr-defined]
                 clean_paths,
-                self.server.browser_base_url,  # type: ignore[attr-defined]
-            )
-            if opened < 1:
+            ):
                 self._send_json(422, {"ok": False, "error": "no_supported_files"})
                 return
 
-            self._send_json(200, {"ok": True, "opened": opened})
+            thread = threading.Thread(
+                target=self.server.api.open_external_paths,  # type: ignore[attr-defined]
+                args=(
+                    clean_paths,
+                    self.server.browser_base_url,  # type: ignore[attr-defined]
+                ),
+                daemon=True,
+            )
+            thread.start()
+
+            self._send_json(200, {"ok": True, "accepted": len(clean_paths)})
         except Exception as exc:
             logging.warning("external file handoff failed: %s", exc)
             self._send_json(400, {"ok": False, "error": "bad_request"})
@@ -658,7 +688,7 @@ def start_instance_registration(command_port: int) -> threading.Event:
                 write_record(now, last_active)
             except OSError:
                 logging.debug("could not write NirvNotes instance record", exc_info=True)
-            stop_event.wait(0.75)
+            stop_event.wait(INSTANCE_HEARTBEAT_SECONDS)
 
         with contextlib.suppress(OSError):
             record_path.unlink()
@@ -714,11 +744,24 @@ def load_instance_records() -> list[dict[str, Any]]:
                 path.unlink()
             continue
 
-        if not isinstance(record, dict) or record.get("pid") == os.getpid():
+        if not isinstance(record, dict):
+            continue
+
+        try:
+            pid = int(record.get("pid", 0) or 0)
+        except (TypeError, ValueError):
+            with contextlib.suppress(OSError):
+                path.unlink()
+            continue
+        if pid == os.getpid():
+            continue
+        if not is_process_running(pid):
+            with contextlib.suppress(OSError):
+                path.unlink()
             continue
 
         last_seen = float(record.get("lastSeen", 0) or 0)
-        if now - last_seen > 20:
+        if now - last_seen > INSTANCE_RECORD_MAX_AGE_SECONDS:
             with contextlib.suppress(OSError):
                 path.unlink()
             continue
@@ -735,6 +778,37 @@ def load_instance_records() -> list[dict[str, Any]]:
         reverse=True,
     )
     return records
+
+
+def is_process_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+
+    if sys.platform != "win32":
+        return True
+
+    try:
+        kernel32 = ctypes.windll.kernel32
+        process_query_limited_information = 0x1000
+        still_active = 259
+        handle = kernel32.OpenProcess(
+            process_query_limited_information,
+            False,
+            int(pid),
+        )
+        if not handle:
+            return False
+
+        exit_code = ctypes.c_ulong()
+        try:
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return False
+            return exit_code.value == still_active
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        logging.debug("could not inspect process state pid=%s", pid, exc_info=True)
+        return True
 
 
 def remove_instance_record(record: dict[str, Any]) -> None:
@@ -840,6 +914,27 @@ def run_js(window: webview.Window, script: str) -> None:
 
 def open_route(window: webview.Window, base_url: str, route: str) -> None:
     window.load_url(f"{base_url.rstrip('/')}{route}")
+
+
+def dispatch_native_launch_consumption(window: webview.Window, fallback_url: str) -> bool:
+    encoded_fallback_url = json.dumps(fallback_url)
+    script = f"""
+(() => {{
+  const fallbackUrl = {encoded_fallback_url};
+  if (typeof window.__nirvnotesConsumeNativeLaunchFiles === "function") {{
+    window.__nirvnotesConsumeNativeLaunchFiles();
+    return;
+  }}
+
+  window.location.assign(fallbackUrl);
+}})()
+""".strip()
+    try:
+        window.run_js(script)
+        return True
+    except Exception:
+        logging.debug("could not dispatch native launch consumption", exc_info=True)
+        return False
 
 
 def build_menu(window_ref: dict[str, webview.Window], base_url: str) -> list[Menu]:
