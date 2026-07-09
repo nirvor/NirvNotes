@@ -136,6 +136,10 @@ function warmCommonNoteViews() {
   };
 
   if ("requestIdleCallback" in window) {
+    if (window.pywebview || document.body.classList.contains("nirvnotes-native-host")) {
+      window.setTimeout(run, 180);
+      return;
+    }
     window.requestIdleCallback(run, { timeout: 2200 });
   } else {
     window.setTimeout(run, 900);

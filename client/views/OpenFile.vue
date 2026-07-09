@@ -1,75 +1,21 @@
 <template>
   <section class="flatnotes-open-file min-w-0 max-w-full">
-    <div class="mb-3 flex min-w-0 flex-col gap-2 md:flex-row md:items-end md:justify-between">
+    <div class="flatnotes-open-file-heading">
       <div class="min-w-0">
-        <p class="mb-1 text-[0.68rem] font-bold uppercase text-theme-text-very-muted">
-          External File
-        </p>
-        <h1 class="truncate text-2xl leading-tight md:text-3xl">
+        <div class="flatnotes-open-file-kicker-line">
+          <span class="flatnotes-open-file-kicker">External File</span>
+          <span
+            v-for="item in metadataItems"
+            :key="item.label"
+            class="flatnotes-open-file-meta"
+          >
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </span>
+        </div>
+        <h1 class="flatnotes-open-file-title">
           {{ activeFile ? activeFile.name : "Open a local file" }}
         </h1>
-      </div>
-
-      <div class="flex shrink-0 gap-2 print:hidden">
-        <button
-          v-if="activeFile"
-          type="button"
-          class="flatnotes-open-file-icon-button"
-          :class="{ 'flatnotes-open-file-icon-button-active': editMode }"
-          :title="editMode ? 'Preview file' : 'Edit file'"
-          :aria-label="editMode ? 'Preview file' : 'Edit file'"
-          @click="toggleEditMode"
-        >
-          <SvgIcon
-            type="mdi"
-            :path="editMode ? mdiEyeOutline : mdiPencilOutline"
-            size="1rem"
-          />
-        </button>
-        <button
-          v-if="activeFile"
-          type="button"
-          class="flatnotes-open-file-icon-button"
-          :class="{ 'flatnotes-open-file-icon-button-dirty': activeFile.dirty }"
-          :disabled="!canSaveActiveFile"
-          :title="saveButtonTitle"
-          :aria-label="saveButtonTitle"
-          @click="saveActiveFile"
-        >
-          <SvgIcon type="mdi" :path="mdiContentSaveOutline" size="1rem" />
-        </button>
-        <button
-          v-if="activeFile"
-          type="button"
-          class="flatnotes-open-file-icon-button"
-          :title="copied ? 'Copied raw source' : 'Copy raw source'"
-          :aria-label="copied ? 'Copied raw source' : 'Copy raw source'"
-          @click="copyActiveFile"
-        >
-          <SvgIcon
-            type="mdi"
-            :path="copied ? mdiCheck : mdiContentCopy"
-            size="1rem"
-          />
-        </button>
-        <button
-          type="button"
-          class="flatnotes-open-file-icon-button"
-          title="Choose another local file"
-          aria-label="Choose another local file"
-          @click="chooseFile"
-        >
-          <SvgIcon type="mdi" :path="mdiFolderOpenOutline" size="1rem" />
-        </button>
-        <button
-          type="button"
-          class="flatnotes-open-file-icon-button"
-          title="Close external file"
-          aria-label="Close external file"
-          @click="closeExternalFile"
-        >
-          <SvgIcon type="mdi" :path="mdiClose" size="1rem" />
-        </button>
       </div>
     </div>
 
@@ -82,22 +28,13 @@
       @change="fileInputChanged"
     />
 
-    <div v-if="statusMessage || activeFile" class="flatnotes-open-file-strip">
+    <div v-if="visibleStatusMessage" class="flatnotes-open-file-strip">
       <span
-        v-if="statusMessage"
         class="flatnotes-open-file-status"
         :class="{ 'flatnotes-open-file-status-error': statusTone === 'error' }"
       >
         <SvgIcon type="mdi" :path="statusIcon" size="0.76rem" />
-        {{ statusMessage }}
-      </span>
-      <span
-        v-for="item in metadataItems"
-        :key="item.label"
-        class="flatnotes-open-file-meta"
-      >
-        <span>{{ item.label }}</span>
-        <strong>{{ item.value }}</strong>
+        {{ visibleStatusMessage }}
       </span>
     </div>
 
@@ -171,7 +108,15 @@ import {
   mdiFolderOpenOutline,
   mdiPencilOutline,
 } from "@mdi/js";
-import { computed, defineAsyncComponent, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+  watchEffect,
+} from "vue";
 import { useRouter } from "vue-router";
 
 import {
@@ -184,6 +129,7 @@ import {
   supportsFileHandlingLaunchQueue,
   supportsNativeFileBridge,
 } from "../externalFiles.js";
+import { useGlobalStore } from "../globalStore.js";
 
 const ToastViewer = defineAsyncComponent(() =>
   import("../components/toastui/ToastViewer.vue"),
@@ -198,6 +144,7 @@ const lastConsumedLaunchId = ref(null);
 const statusMessage = ref("");
 const statusTone = ref("info");
 const router = useRouter();
+const globalStore = useGlobalStore();
 
 const activeFile = computed(
   () => files.value.find((file) => file.key === activeKey.value) || null,
@@ -216,16 +163,11 @@ const metadataItems = computed(() => {
   return [
     { label: "type", value: activeFile.value.extension || "text" },
     { label: "size", value: formatBytes(activeFile.value.size) },
-    {
-      label: "save",
-      value: activeFile.value.handle
-        ? activeFile.value.dirty
-          ? "unsaved"
-          : "ready"
-        : "read-only",
-    },
   ];
 });
+const visibleStatusMessage = computed(() =>
+  statusTone.value === "error" ? statusMessage.value : "",
+);
 const statusIcon = computed(() =>
   statusTone.value === "error" ? mdiAlertCircleOutline : mdiCheckCircleOutline,
 );
@@ -246,6 +188,62 @@ onMounted(() => {
 });
 
 watch(externalFileLaunch, consumeExternalLaunch, { immediate: true });
+watchEffect(updateOpenFileActions);
+
+onUnmounted(() => globalStore.clearNoteActions());
+
+function updateOpenFileActions() {
+  const file = activeFile.value;
+  globalStore.setNoteActions([
+    {
+      key: "external-edit",
+      label: editMode.value ? "Preview" : "Edit",
+      iconPath: editMode.value ? mdiEyeOutline : mdiPencilOutline,
+      visible: Boolean(file),
+      iconOnly: true,
+      handler: toggleEditMode,
+    },
+    {
+      key: "external-save",
+      label: "Save",
+      iconPath: mdiContentSaveOutline,
+      visible: Boolean(file?.handle && file?.dirty),
+      disabled: !canSaveActiveFile.value,
+      unsaved: Boolean(file?.dirty),
+      iconOnly: true,
+      handler: () => {
+        if (canSaveActiveFile.value) {
+          saveActiveFile();
+        }
+      },
+    },
+    {
+      key: "external-copy",
+      label: copied.value ? "Copied" : "Copy",
+      iconPath: copied.value ? mdiCheck : mdiContentCopy,
+      visible: Boolean(file),
+      iconOnly: true,
+      handler: copyActiveFile,
+    },
+    {
+      key: "external-choose",
+      label: "Open",
+      iconPath: mdiFolderOpenOutline,
+      iconOnly: true,
+      handler: chooseFile,
+    },
+    {
+      key: "external-close",
+      label: "Close",
+      iconPath: mdiClose,
+      visible: Boolean(file),
+      iconOnly: true,
+      handler: closeExternalFile,
+    },
+  ]);
+  globalStore.setNoteMenuItems([]);
+  globalStore.setNoteLayout({ kind: "markdown" });
+}
 
 async function chooseFile() {
   if (!confirmDiscardUnsavedChanges()) {
@@ -659,6 +657,43 @@ function showStatus(message, tone = "info") {
   margin-inline: auto;
 }
 
+.flatnotes-open-file-heading {
+  min-width: 0;
+  max-width: 100%;
+  margin-bottom: 0.68rem;
+}
+
+.flatnotes-open-file-kicker-line {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.32rem;
+  margin-bottom: 0.22rem;
+}
+
+.flatnotes-open-file-kicker {
+  color: rgb(var(--theme-text-very-muted));
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.flatnotes-open-file-title {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgb(var(--theme-text));
+  font-size: clamp(1.18rem, 4.2vw, 1.5rem);
+  line-height: 1.15;
+}
+
 .flatnotes-open-file-strip {
   display: flex;
   min-height: 1.42rem;
@@ -706,37 +741,6 @@ function showStatus(message, tone = "info") {
 .flatnotes-open-file-meta strong {
   color: rgb(var(--theme-text));
   font-weight: 600;
-}
-
-.flatnotes-open-file-icon-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.75rem;
-  min-height: 1.75rem;
-  border: 1px solid rgb(var(--theme-border));
-  border-radius: 6px;
-  color: rgb(var(--theme-text));
-  background-color: rgb(var(--theme-background));
-  touch-action: manipulation;
-}
-
-.flatnotes-open-file-icon-button:hover,
-.flatnotes-open-file-icon-button:focus-visible {
-  border-color: rgb(var(--theme-brand));
-  color: rgb(var(--theme-brand));
-  background-color: rgb(var(--theme-background-elevated));
-}
-
-.flatnotes-open-file-icon-button:disabled {
-  cursor: default;
-  opacity: 0.46;
-}
-
-.flatnotes-open-file-icon-button-active,
-.flatnotes-open-file-icon-button-dirty:not(:disabled) {
-  border-color: rgb(var(--theme-brand));
-  color: rgb(var(--theme-brand));
 }
 
 .flatnotes-open-file-editor {
@@ -797,10 +801,15 @@ function showStatus(message, tone = "info") {
   text-transform: uppercase;
 }
 
-@media (max-width: 640px) and (pointer: coarse), (max-width: 640px) and (hover: none) {
-  .flatnotes-open-file-icon-button {
-    width: 2rem;
-    min-height: 2rem;
-  }
+.flatnotes-open-file :deep(.toastui-editor-contents:not(.flatnotes-html-contents) h1) {
+  font-size: 1.42rem;
+}
+
+.flatnotes-open-file :deep(.toastui-editor-contents:not(.flatnotes-html-contents) h2) {
+  font-size: 1.22rem;
+}
+
+.flatnotes-open-file :deep(.toastui-editor-contents:not(.flatnotes-html-contents) h3) {
+  font-size: 1.08rem;
 }
 </style>

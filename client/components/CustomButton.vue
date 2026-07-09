@@ -1,6 +1,7 @@
 <template>
   <button
     class="flatnotes-custom-button text-nowrap rounded px-1.5 py-0.5 text-[0.94rem]"
+    :disabled="disabled"
     :class="{
       'bg-theme-background text-theme-text-muted hover:bg-theme-background-elevated':
         style === 'subtle',
@@ -10,6 +11,7 @@
         style === 'danger',
       'border border-theme-success text-theme-success hover:bg-theme-success/10':
         style === 'success',
+      'cursor-default opacity-45 hover:bg-theme-background': disabled,
     }"
     :title="label"
     :aria-label="label"
@@ -26,6 +28,7 @@ defineProps({
   iconPath: String,
   iconSize: String,
   label: String,
+  disabled: Boolean,
   style: {
     type: String,
     default: "subtle",

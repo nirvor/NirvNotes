@@ -10,8 +10,8 @@ import router from "./router.js";
 const api = axios.create();
 const noteCache = new Map();
 const searchCache = new Map();
-const noteCacheTtlMs = 2 * 60 * 1000;
-const searchCacheTtlMs = 12 * 1000;
+const noteCacheTtlMs = 5 * 60 * 1000;
+const searchCacheTtlMs = 30 * 1000;
 
 api.interceptors.request.use(
   // If the request is not for the token endpoint, add the token to the headers.

@@ -54,7 +54,7 @@
     <div class="min-w-0 max-w-full">
       <!-- Title -->
       <div class="flatnotes-note-title-row">
-        <div class="min-w-0 grow truncate text-2xl leading-[1.35em]">
+        <div class="flatnotes-note-title-text">
           <span v-show="!editMode" :title="note.title">{{ note.title }}</span>
           <input
             v-show="editMode"
@@ -66,7 +66,7 @@
       </div>
     </div>
 
-    <hr v-if="!editMode" class="my-2 border-theme-border" />
+    <hr v-if="!editMode" class="flatnotes-note-title-rule border-theme-border" />
 
     <!-- Content -->
     <div
@@ -1062,7 +1062,6 @@ function updateNoteActions() {
       label: "Copy",
       iconPath: mdiContentCopy,
       visible: !editMode.value && !isNewNote.value && Boolean(note.value.title),
-      placement: "end",
       iconOnly: true,
       handler: () => copyNote(),
     },
@@ -1148,6 +1147,22 @@ onUnmounted(() => globalStore.clearNoteActions());
   max-width: 100%;
   align-items: center;
   gap: 0.45rem;
+}
+
+.flatnotes-note-title-text {
+  min-width: 0;
+  flex-grow: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgb(var(--theme-text));
+  font-size: clamp(1.28rem, 4.4vw, 1.64rem);
+  line-height: 1.18;
+}
+
+.flatnotes-note-title-rule {
+  margin-top: 0.5rem;
+  margin-bottom: 0.62rem;
 }
 
 .flatnotes-note-shell-work {
