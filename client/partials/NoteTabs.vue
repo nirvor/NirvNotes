@@ -53,6 +53,15 @@
       </div>
 
       <RouterLink
+        :to="{ name: 'home' }"
+        class="flatnotes-note-drawer-primary"
+        @click="closeDrawer"
+      >
+        <SvgIcon type="mdi" :path="mdilHome" size="1rem" />
+        <span>Home</span>
+      </RouterLink>
+
+      <RouterLink
         :to="allNotesRoute"
         class="flatnotes-note-drawer-primary"
         @click="closeDrawer"
@@ -124,6 +133,7 @@ import { mdiBookMultipleOutline } from "@mdi/js";
 import {
   mdilChevronRight,
   mdilClock,
+  mdilHome,
   mdilNoteMultiple,
 } from "@mdi/light-js";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";

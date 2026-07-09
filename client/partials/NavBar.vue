@@ -20,6 +20,14 @@
           ></div>
         </CustomButton>
       </template>
+      <!-- Home -->
+      <RouterLink :to="{ name: 'home' }">
+        <CustomButton
+          :iconPath="mdilHome"
+          label="Home"
+          class="flatnotes-navbar-icon-only"
+        />
+      </RouterLink>
       <!-- New Note -->
       <RouterLink v-if="showNewButton" :to="{ name: 'new' }">
         <CustomButton :iconPath="mdilPlusCircle" label="New Note" />
@@ -61,6 +69,7 @@
 import { mdiBookMultipleOutline } from "@mdi/js";
 import {
   mdilLogout,
+  mdilHome,
   mdilMagnify,
   mdilMenu,
   mdilMonitor,

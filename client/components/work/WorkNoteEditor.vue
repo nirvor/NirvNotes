@@ -435,6 +435,12 @@ function getContent(title) {
   );
 }
 
+function focusEditor() {
+  previewVisible.value = false;
+  nextTick(() => textarea.value?.focus({ preventScroll: true }));
+  return textarea.value;
+}
+
 watch(
   () => props.initialValue,
   async () => {
@@ -452,7 +458,7 @@ onMounted(async () => {
 
 onBeforeUnmount(clearTagNormalizeTimeout);
 
-defineExpose({ getContent, getMarkdown });
+defineExpose({ focusEditor, getContent, getMarkdown });
 </script>
 
 <style lang="scss" scoped>

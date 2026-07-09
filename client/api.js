@@ -10,8 +10,12 @@ import router from "./router.js";
 const api = axios.create();
 const noteCache = new Map();
 const searchCache = new Map();
+let semanticIndexCache = null;
+let tagCache = null;
 const noteCacheTtlMs = 5 * 60 * 1000;
 const searchCacheTtlMs = 30 * 1000;
+const semanticIndexCacheTtlMs = 2 * 60 * 1000;
+const tagCacheTtlMs = 2 * 60 * 1000;
 
 api.interceptors.request.use(
   // If the request is not for the token endpoint, add the token to the headers.
@@ -51,6 +55,14 @@ export function apiErrorHandler(error, toast) {
 export function clearApiCaches() {
   noteCache.clear();
   searchCache.clear();
+  semanticIndexCache = null;
+  tagCache = null;
+}
+
+function clearIndexCaches() {
+  searchCache.clear();
+  semanticIndexCache = null;
+  tagCache = null;
 }
 
 export async function getConfig() {
@@ -117,7 +129,7 @@ export async function createNote(title, content, format = "html") {
       format: format,
     });
     cacheNote(response.data);
-    searchCache.clear();
+    clearIndexCaches();
     return new Note(response.data);
   } catch (response) {
     return Promise.reject(response);
@@ -152,8 +164,19 @@ export async function getNoteContext(title) {
 }
 
 export async function getSemanticIndex() {
+  if (
+    semanticIndexCache &&
+    Date.now() - semanticIndexCache.loadedAt < semanticIndexCacheTtlMs
+  ) {
+    return semanticIndexCache.data.map((note) => ({ ...note }));
+  }
+
   try {
     const response = await api.get("api/index");
+    semanticIndexCache = {
+      loadedAt: Date.now(),
+      data: response.data.map((note) => ({ ...note })),
+    };
     return response.data;
   } catch (response) {
     return Promise.reject(response);
@@ -169,7 +192,7 @@ export async function updateNote(title, newTitle, newContent, format = "html") {
     });
     noteCache.delete(String(title || ""));
     cacheNote(response.data);
-    searchCache.clear();
+    clearIndexCaches();
     return new Note(response.data);
   } catch (response) {
     return Promise.reject(response);
@@ -180,15 +203,23 @@ export async function deleteNote(title) {
   try {
     await api.delete(`api/notes/${encodeURIComponent(title)}`);
     noteCache.delete(String(title || ""));
-    searchCache.clear();
+    clearIndexCaches();
   } catch (response) {
     return Promise.reject(response);
   }
 }
 
 export async function getTags() {
+  if (tagCache && Date.now() - tagCache.loadedAt < tagCacheTtlMs) {
+    return [...tagCache.data];
+  }
+
   try {
     const response = await api.get("api/tags");
+    tagCache = {
+      loadedAt: Date.now(),
+      data: [...response.data],
+    };
     return response.data;
   } catch (response) {
     return Promise.reject(response);

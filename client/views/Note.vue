@@ -343,6 +343,7 @@ function setEditMode() {
   }
   unsavedChanges.value = false;
   editMode.value = true;
+  focusEditorSoon();
 }
 
 function contentSelectionHasText() {
@@ -406,11 +407,12 @@ function noteContentDblClickHandler(event) {
 }
 
 function noteContentPointerUpHandler(event) {
-  if (!["touch", "pen"].includes(event.pointerType)) {
-    return;
-  }
-
-  if (!canStartEditFromContent(event)) {
+  const previousTap = lastContentTap;
+  if (
+    !canStartEditFromContent(event, {
+      allowSelection: Boolean(previousTap),
+    })
+  ) {
     lastContentTap = null;
     return;
   }
@@ -422,7 +424,6 @@ function noteContentPointerUpHandler(event) {
     y: event.clientY,
   };
 
-  const previousTap = lastContentTap;
   lastContentTap = nextTap;
   window.setTimeout(() => {
     if (lastContentTap === nextTap) {
@@ -443,7 +444,21 @@ function noteContentPointerUpHandler(event) {
   }
 
   lastContentTap = null;
-  startEditFromContent(event);
+  startEditFromContent(event, { allowSelection: true });
+}
+
+function focusEditorSoon() {
+  nextTick(() => {
+    const editorElement =
+      contentEditor.value?.focusEditor?.() ||
+      document.querySelector(
+        ".flatnotes-note-content textarea, .flatnotes-note-content .toastui-editor-md-container textarea, .flatnotes-note-content [contenteditable='true']",
+      );
+
+    if (editorElement instanceof HTMLElement) {
+      editorElement.focus({ preventScroll: true });
+    }
+  });
 }
 
 function getInitialEditorValue() {
@@ -947,6 +962,74 @@ function htmlToPlainText(html) {
   return normalizeCopiedText(rawText);
 }
 
+function removeAbstractLikeLead(documentRoot) {
+  documentRoot
+    .querySelectorAll(
+      [
+        ".flatnotes-note-lead",
+        ".flatnotes-note-lead-abstract",
+        ".flatnote-summary",
+        "[data-flatnotes-component='summary']",
+      ].join(","),
+    )
+    .forEach((element) => element.remove());
+
+  const headings = [...documentRoot.querySelectorAll("h1,h2,h3,h4,h5,h6")];
+  for (const heading of headings) {
+    const text = heading.textContent.trim().toLowerCase();
+    if (
+      ![
+        "abstract",
+        "summary",
+        "kurzfassung",
+        "kurzantwort",
+        "tl;dr",
+        "tldr",
+        "key points",
+        "takeaways",
+      ].includes(text)
+    ) {
+      continue;
+    }
+
+    const toRemove = [heading];
+    let next = heading.nextElementSibling;
+    while (
+      next &&
+      !/^H[1-6]$/.test(next.tagName) &&
+      toRemove.length < 4
+    ) {
+      toRemove.push(next);
+      next = next.nextElementSibling;
+    }
+    toRemove.forEach((element) => element.remove());
+    break;
+  }
+}
+
+function getCleanNoteTextContent() {
+  if (!isHtmlFormat.value) {
+    return normalizeCopiedText(getNoteSourceContent());
+  }
+
+  if (isWorkNote.value) {
+    return normalizeCopiedText(extractWorkMarkdown(getNoteSourceContent()));
+  }
+
+  const parsedDocument = new DOMParser().parseFromString(
+    extractBodyHtml(getNoteSourceContent()),
+    "text/html",
+  );
+  parsedDocument
+    .querySelectorAll("script, style, template, .flatnotes-note-hidden-title")
+    .forEach((element) => element.remove());
+  removeAbstractLikeLead(parsedDocument);
+
+  const rawText =
+    parsedDocument.body?.innerText || parsedDocument.body?.textContent || "";
+  return normalizeCopiedText(rawText);
+}
+
 function normalizeCopiedText(text) {
   return String(text || "")
     .replace(/\u00a0/g, " ")
@@ -962,9 +1045,6 @@ function getMarkdownSource() {
 }
 
 function getDefaultCopyKind() {
-  if (isWorkNote.value || !isHtmlFormat.value) {
-    return "source";
-  }
   return "text";
 }
 
@@ -1007,10 +1087,7 @@ async function copyNote(kind = "default") {
         await writePlainTextToClipboard(source);
       }
     } else {
-      const text = isHtmlFormat.value
-        ? htmlToPlainText(getNoteSourceContent())
-        : normalizeCopiedText(getNoteSourceContent());
-      await writePlainTextToClipboard(text);
+      await writePlainTextToClipboard(getCleanNoteTextContent());
     }
     toast.add(getToastOptions(getCopyLabel(copyKind), "Copied", "success"));
   } catch {
@@ -1085,7 +1162,7 @@ function updateNoteActions() {
       label: editMode.value ? "Done" : "Edit",
       iconPath: editMode.value ? mdilCheck : mdilPencil,
       visible: canModify.value,
-      handler: toggleEditModeHandler,
+      handler: editMode.value ? () => saveHandler(true) : toggleEditModeHandler,
     },
   ]);
   globalStore.setNoteMenuItems(getCopyMenuItems());

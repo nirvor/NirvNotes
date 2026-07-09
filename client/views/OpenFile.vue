@@ -1,5 +1,9 @@
 <template>
-  <section class="flatnotes-open-file min-w-0 max-w-full">
+  <section
+    class="flatnotes-open-file min-w-0 max-w-full"
+    @dblclick="openFileDblClickHandler"
+    @pointerup="openFilePointerUpHandler"
+  >
     <div class="flatnotes-open-file-heading">
       <div class="min-w-0">
         <div class="flatnotes-open-file-kicker-line">
@@ -55,6 +59,7 @@
 
     <textarea
       v-if="activeFile && editMode"
+      ref="editorTextarea"
       v-model="activeFile.draftContent"
       class="flatnotes-open-file-editor"
       spellcheck="false"
@@ -111,6 +116,7 @@ import {
 import {
   computed,
   defineAsyncComponent,
+  nextTick,
   onMounted,
   onUnmounted,
   ref,
@@ -137,6 +143,7 @@ const ToastViewer = defineAsyncComponent(() =>
 
 const copied = ref(false);
 const editMode = ref(false);
+const editorTextarea = ref();
 const fileInput = ref();
 const files = ref([]);
 const activeKey = ref(null);
@@ -145,6 +152,9 @@ const statusMessage = ref("");
 const statusTone = ref("info");
 const router = useRouter();
 const globalStore = useGlobalStore();
+const editDoubleTapDelayMs = 420;
+const editDoubleTapDistancePx = 28;
+let lastContentTap = null;
 
 const activeFile = computed(
   () => files.value.find((file) => file.key === activeKey.value) || null,
@@ -300,6 +310,106 @@ function closeExternalFile() {
   copied.value = false;
   editMode.value = false;
   router.push({ name: "home" });
+}
+
+function isIgnoredEditTriggerTarget(target) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  return Boolean(
+    target.closest(
+      [
+        "a",
+        "button",
+        "input",
+        "textarea",
+        "select",
+        "label",
+        "summary",
+        "[role='button']",
+        "pre",
+        "code",
+        ".flatnotes-code-block-wrapper",
+        ".flatnotes-bottom-tags",
+        ".flatnotes-media-button",
+        ".flatnotes-media-lightbox",
+        ".katex",
+      ].join(","),
+    ),
+  );
+}
+
+function canStartEditFromContent(event, { allowSelection = false } = {}) {
+  const selection = window.getSelection?.();
+  const hasSelection = Boolean(
+    selection && !selection.isCollapsed && selection.toString(),
+  );
+
+  return (
+    Boolean(activeFile.value) &&
+    !editMode.value &&
+    !event.defaultPrevented &&
+    (event.button == null || event.button === 0) &&
+    (allowSelection || !hasSelection) &&
+    !isIgnoredEditTriggerTarget(event.target)
+  );
+}
+
+function startEditFromContent(event, options = {}) {
+  if (!canStartEditFromContent(event, options)) {
+    return false;
+  }
+
+  event.preventDefault();
+  setEditMode(true);
+  return true;
+}
+
+function openFileDblClickHandler(event) {
+  lastContentTap = null;
+  startEditFromContent(event, { allowSelection: true });
+}
+
+function openFilePointerUpHandler(event) {
+  const previousTap = lastContentTap;
+  if (
+    !canStartEditFromContent(event, {
+      allowSelection: Boolean(previousTap),
+    })
+  ) {
+    lastContentTap = null;
+    return;
+  }
+
+  const now = window.performance?.now?.() || Date.now();
+  const nextTap = {
+    time: now,
+    x: event.clientX,
+    y: event.clientY,
+  };
+
+  lastContentTap = nextTap;
+  window.setTimeout(() => {
+    if (lastContentTap === nextTap) {
+      lastContentTap = null;
+    }
+  }, editDoubleTapDelayMs + 40);
+
+  if (!previousTap || now - previousTap.time > editDoubleTapDelayMs) {
+    return;
+  }
+
+  const distance = Math.hypot(
+    event.clientX - previousTap.x,
+    event.clientY - previousTap.y,
+  );
+  if (distance > editDoubleTapDistancePx) {
+    return;
+  }
+
+  lastContentTap = null;
+  startEditFromContent(event, { allowSelection: true });
 }
 
 async function fileInputChanged(event) {
@@ -529,7 +639,14 @@ function toggleEditMode() {
   if (editMode.value) {
     refreshPreview(activeFile.value);
   }
-  editMode.value = !editMode.value;
+  setEditMode(!editMode.value);
+}
+
+function setEditMode(value) {
+  editMode.value = value;
+  if (editMode.value) {
+    nextTick(() => editorTextarea.value?.focus({ preventScroll: true }));
+  }
 }
 
 async function saveActiveFile() {

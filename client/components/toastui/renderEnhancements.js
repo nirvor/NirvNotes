@@ -42,7 +42,7 @@ const taskCheckboxSavingClass = "flatnotes-task-checkbox-saving";
 const resetDelayMs = 1600;
 const maxInlineLatexLength = 500;
 const maxLeadSearchElements = 18;
-const maxLeadAbstractItems = 5;
+const maxLeadAbstractItems = 3;
 const abstractHeadingTexts = new Set([
   "abstract",
   "kurzantwort",

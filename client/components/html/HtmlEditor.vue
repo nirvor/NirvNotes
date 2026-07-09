@@ -422,13 +422,18 @@ function isWysiwygMode() {
   return false;
 }
 
+function focusEditor() {
+  nextTick(() => textarea.value?.focus({ preventScroll: true }));
+  return textarea.value;
+}
+
 onMounted(async () => {
   await nextTick();
   resizeTextarea();
   textarea.value?.focus();
 });
 
-defineExpose({ getContent, isWysiwygMode });
+defineExpose({ focusEditor, getContent, isWysiwygMode });
 </script>
 
 <style lang="scss" scoped>

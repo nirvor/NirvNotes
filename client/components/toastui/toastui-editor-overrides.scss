@@ -306,10 +306,11 @@
 }
 
 .toastui-editor-contents .flatnotes-note-lead-abstract {
-  border: 0;
-  border-radius: 0;
-  padding: 0;
-  background-color: transparent;
+  border: 1px solid rgb(var(--theme-border) / 0.62);
+  border-left: 2px solid rgb(var(--theme-brand) / 0.72);
+  border-radius: 6px;
+  padding: 0.44rem 0.64rem;
+  background-color: rgb(var(--theme-background-elevated) / 0.28);
 }
 
 .toastui-editor-contents .flatnotes-note-lead-label {

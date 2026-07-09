@@ -151,9 +151,20 @@ function isWysiwygMode() {
   return toastEditor.isWysiwygMode();
 }
 
+function focusEditor() {
+  if (!toastEditor) {
+    return null;
+  }
+
+  toastEditor.focus();
+  return editorElement.value?.querySelector(
+    "textarea, [contenteditable='true']",
+  );
+}
+
 onBeforeUnmount(clearTagNormalizeTimeout);
 
-defineExpose({ getMarkdown, isWysiwygMode });
+defineExpose({ focusEditor, getMarkdown, isWysiwygMode });
 </script>
 
 <style>

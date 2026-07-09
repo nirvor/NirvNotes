@@ -70,7 +70,7 @@
 import { mdiTag } from "@mdi/js";
 import { mdilMagnify } from "@mdi/light-js";
 import { useToast } from "primevue/usetoast";
-import { onBeforeUnmount, ref, watch } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
 import { apiErrorHandler, getSemanticIndex, getTags } from "../api.js";
@@ -118,7 +118,11 @@ function searchTermForInput(value = "") {
 
 function hideMenus() {
   tagMenuVisible.value = false;
-  tagCloudVisible.value = false;
+  if (searchTerm.value.trim()) {
+    tagCloudVisible.value = false;
+  } else {
+    showTagCloud();
+  }
 }
 
 function keydownHandler(event) {
@@ -397,6 +401,12 @@ watch(
 const stopTagUsageListener = onTagUsageChange(() => {
   if (tagCloudLoaded) {
     rebuildTopTags();
+  }
+});
+
+onMounted(() => {
+  if (!searchTerm.value.trim()) {
+    showTagCloud();
   }
 });
 
