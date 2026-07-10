@@ -18,7 +18,7 @@
     confirmButtonStyle="success"
     rejectButtonText="Discard"
     rejectButtonStyle="danger"
-    @confirm="saveHandler((close = true))"
+    @confirm="saveHandler(true)"
     @reject="closeNote"
   />
 
@@ -33,7 +33,7 @@
     rejectButtonStyle="danger"
     @confirm="setEditMode()"
     @reject="
-      clearDraft();
+      documentSession.clearDraft();
       setEditMode();
     "
   />
@@ -66,7 +66,10 @@
       </div>
     </div>
 
-    <hr v-if="!editMode" class="flatnotes-note-title-rule border-theme-border" />
+    <hr
+      v-if="!editMode"
+      class="flatnotes-note-title-rule border-theme-border"
+    />
 
     <!-- Content -->
     <div
@@ -173,11 +176,6 @@ import {
   updateNote,
 } from "../api.js";
 import { Note } from "../classes.js";
-import {
-  writeHtmlToClipboard,
-  writeMarkdownToClipboard,
-  writePlainTextToClipboard,
-} from "../clipboard.js";
 import ConfirmModal from "../components/ConfirmModal.vue";
 import LoadingIndicator from "../components/LoadingIndicator.vue";
 import {
@@ -186,27 +184,29 @@ import {
   isWorkNoteHtml,
 } from "../components/work/workNote.js";
 import { authTypes } from "../constants.js";
+import { useDocumentSession } from "../documents/documentSession.js";
+import { createVpsNoteStorageAdapter } from "../documents/storageAdapters.js";
 import { useGlobalStore } from "../globalStore.js";
 import { getToastOptions } from "../helpers.js";
 import { isCurrentTokenStored } from "../tokenStorage.js";
 
-const HtmlEditor = defineAsyncComponent(() =>
-  import("../components/html/HtmlEditor.vue"),
+const HtmlEditor = defineAsyncComponent(
+  () => import("../components/html/HtmlEditor.vue"),
 );
-const HtmlViewer = defineAsyncComponent(() =>
-  import("../components/html/HtmlViewer.vue"),
+const HtmlViewer = defineAsyncComponent(
+  () => import("../components/html/HtmlViewer.vue"),
 );
-const ToastEditor = defineAsyncComponent(() =>
-  import("../components/toastui/ToastEditor.vue"),
+const ToastEditor = defineAsyncComponent(
+  () => import("../components/toastui/ToastEditor.vue"),
 );
-const ToastViewer = defineAsyncComponent(() =>
-  import("../components/toastui/ToastViewer.vue"),
+const ToastViewer = defineAsyncComponent(
+  () => import("../components/toastui/ToastViewer.vue"),
 );
-const WorkNoteEditor = defineAsyncComponent(() =>
-  import("../components/work/WorkNoteEditor.vue"),
+const WorkNoteEditor = defineAsyncComponent(
+  () => import("../components/work/WorkNoteEditor.vue"),
 );
-const WorkNoteViewer = defineAsyncComponent(() =>
-  import("../components/work/WorkNoteViewer.vue"),
+const WorkNoteViewer = defineAsyncComponent(
+  () => import("../components/work/WorkNoteViewer.vue"),
 );
 
 const props = defineProps({
@@ -244,10 +244,8 @@ const noteLayoutKind = computed(() => {
   return "markdown";
 });
 let contentChangedTimeout = null;
-let lastContentTap = null;
 const contentEditor = ref();
 const editorKey = ref(0);
-const editMode = ref(false);
 const editorFormat = ref("html");
 const editorKind = ref("work");
 const globalStore = useGlobalStore();
@@ -261,9 +259,40 @@ const reservedFilenameCharacters = /[<>:"/\\|?*]/;
 const router = useRouter();
 const newTitle = ref();
 const toast = useToast();
-const unsavedChanges = ref(false);
-const editDoubleTapDelayMs = 420;
-const editDoubleTapDistancePx = 28;
+const noteStorageAdapter = createVpsNoteStorageAdapter({
+  create: createNote,
+  update: updateNote,
+});
+const documentSession = useDocumentSession({
+  canEdit: () => canModify.value,
+  hasDocument: true,
+  requestEdit: editHandler,
+  requestClose: closeHandler,
+  focusEditor,
+  draftKey: () =>
+    isNewNote.value
+      ? "vps:new"
+      : `vps:${note.value.title || props.title || "note"}`,
+  legacyDraftKeys: () => [note.value.title],
+  persistDraft: () => isCurrentTokenStored(),
+  saveDocument: persistNote,
+  copyDocument: getCopyPayload,
+  afterSave: noteSaveSuccess,
+  onSaveError: noteSaveFailure,
+  afterCopy: ({ kind }) => {
+    const copyKind = kind === "default" ? getDefaultCopyKind() : kind;
+    toast.add(getToastOptions(getCopyLabel(copyKind), "Copied", "success"));
+  },
+  onCopyError: () => {
+    toast.add(
+      getToastOptions("Could not copy this note.", "Copy Failed", "error"),
+    );
+  },
+});
+const editMode = documentSession.editMode;
+const unsavedChanges = documentSession.dirty;
+const noteContentDblClickHandler = documentSession.contentDblClickHandler;
+const noteContentPointerUpHandler = documentSession.contentPointerUpHandler;
 
 function init() {
   // Return if we already have the note e.g. When we rename a note, the route prop would change but we’d already have the note.
@@ -319,7 +348,7 @@ function toggleEditModeHandler() {
 }
 
 function editHandler() {
-  const draftContent = loadDraft();
+  const draftContent = documentSession.loadDraft();
   if (draftContent) {
     isDraftModalVisible.value = true;
   } else {
@@ -341,128 +370,24 @@ function setEditMode() {
   } else {
     editorKind.value = "markdown";
   }
-  unsavedChanges.value = false;
-  editMode.value = true;
-  focusEditorSoon();
+  documentSession.setDirty(false);
+  documentSession.enterEdit();
 }
 
-function contentSelectionHasText() {
-  const selection = window.getSelection?.();
-  return Boolean(selection && !selection.isCollapsed && selection.toString());
-}
+function focusEditor() {
+  const editorElement =
+    contentEditor.value?.focusEditor?.() ||
+    document.querySelector(
+      ".flatnotes-note-content textarea, .flatnotes-note-content .toastui-editor-md-container textarea, .flatnotes-note-content [contenteditable='true']",
+    );
 
-function isIgnoredEditTriggerTarget(target) {
-  if (!(target instanceof Element)) {
-    return false;
+  if (editorElement instanceof HTMLElement) {
+    editorElement.focus({ preventScroll: true });
   }
-
-  return Boolean(
-    target.closest(
-      [
-        "a",
-        "button",
-        "input",
-        "textarea",
-        "select",
-        "label",
-        "summary",
-        "[role='button']",
-        "pre",
-        "code",
-        ".flatnotes-code-block-wrapper",
-        ".flatnotes-bottom-tags",
-        ".flatnotes-media-button",
-        ".flatnotes-media-lightbox",
-        ".katex",
-      ].join(","),
-    ),
-  );
-}
-
-function canStartEditFromContent(event, { allowSelection = false } = {}) {
-  return (
-    !editMode.value &&
-    canModify.value &&
-    !isNewNote.value &&
-    !event.defaultPrevented &&
-    (event.button == null || event.button === 0) &&
-    (allowSelection || !contentSelectionHasText()) &&
-    !isIgnoredEditTriggerTarget(event.target)
-  );
-}
-
-function startEditFromContent(event, options = {}) {
-  if (!canStartEditFromContent(event, options)) {
-    return false;
-  }
-
-  event.preventDefault();
-  editHandler();
-  return true;
-}
-
-function noteContentDblClickHandler(event) {
-  lastContentTap = null;
-  startEditFromContent(event, { allowSelection: true });
-}
-
-function noteContentPointerUpHandler(event) {
-  const previousTap = lastContentTap;
-  if (
-    !canStartEditFromContent(event, {
-      allowSelection: Boolean(previousTap),
-    })
-  ) {
-    lastContentTap = null;
-    return;
-  }
-
-  const now = window.performance?.now?.() || Date.now();
-  const nextTap = {
-    time: now,
-    x: event.clientX,
-    y: event.clientY,
-  };
-
-  lastContentTap = nextTap;
-  window.setTimeout(() => {
-    if (lastContentTap === nextTap) {
-      lastContentTap = null;
-    }
-  }, editDoubleTapDelayMs + 40);
-
-  if (!previousTap || now - previousTap.time > editDoubleTapDelayMs) {
-    return;
-  }
-
-  const distance = Math.hypot(
-    event.clientX - previousTap.x,
-    event.clientY - previousTap.y,
-  );
-  if (distance > editDoubleTapDistancePx) {
-    return;
-  }
-
-  lastContentTap = null;
-  startEditFromContent(event, { allowSelection: true });
-}
-
-function focusEditorSoon() {
-  nextTick(() => {
-    const editorElement =
-      contentEditor.value?.focusEditor?.() ||
-      document.querySelector(
-        ".flatnotes-note-content textarea, .flatnotes-note-content .toastui-editor-md-container textarea, .flatnotes-note-content [contenteditable='true']",
-      );
-
-    if (editorElement instanceof HTMLElement) {
-      editorElement.focus({ preventScroll: true });
-    }
-  });
 }
 
 function getInitialEditorValue() {
-  const draftContent = loadDraft();
+  const draftContent = documentSession.loadDraft();
   const content = draftContent ? draftContent : note.value.content;
   if (editorFormat.value === "html" && editorKind.value === "work") {
     return content ? extractWorkMarkdown(content) : "";
@@ -489,70 +414,53 @@ function deleteConfirmedHandler() {
 
 // Note Saving
 function saveHandler(close = false) {
-  // Save Default Editor Mode
+  return documentSession.save({ close });
+}
+
+async function persistNote() {
   saveDefaultEditorMode();
 
-  // Empty Title Validation
   if (!newTitle.value) {
     toast.add(
       getToastOptions("Cannot save note without a title.", "Invalid", "error"),
     );
-    return;
+    return false;
   }
 
   // Invalid Character Validation
   if (reservedFilenameCharacters.test(newTitle.value)) {
     badFilenameToast("Title");
-    return;
+    return false;
   }
 
-  // Save Note
-  let newContent = getEditorContent();
-  if (isNewNote.value) {
-    saveNew(newTitle.value, newContent, close, editorFormat.value);
-  } else {
-    saveExisting(newTitle.value, newContent, close, editorFormat.value);
-  }
-}
-
-function saveNew(newTitle, newContent, close = false, format = "html") {
-  createNote(newTitle, newContent, format)
-    .then((data) => {
-      clearDraft();
-      note.value = data;
-      router
-        .push({
-          name: "note",
-          params: { title: note.value.title },
-        })
-        .then(() => {
-          // Wait for the route to be updated before setting edit mode to false
-          // as the route is used to determine the action.
-          noteSaveSuccess(close);
-        });
-    })
-    .catch(noteSaveFailure);
-}
-
-function saveExisting(newTitle, newContent, close = false, format = "html") {
-  // Return if no changes
+  const newContent = getEditorContent();
   if (
-    newTitle == note.value.title &&
-    newContent == note.value.content &&
-    format == (note.value.format || "html")
+    !isNewNote.value &&
+    newTitle.value === note.value.title &&
+    newContent === note.value.content &&
+    editorFormat.value === (note.value.format || "html")
   ) {
-    noteSaveSuccess(close);
-    return;
+    return note.value;
   }
 
-  updateNote(note.value.title, newTitle, newContent, format)
-    .then((data) => {
-      clearDraft();
-      note.value = data;
-      router.replace({ name: "note", params: { title: note.value.title } });
-      noteSaveSuccess(close);
-    })
-    .catch(noteSaveFailure);
+  const wasNew = isNewNote.value;
+  const data = await noteStorageAdapter.save({
+    isNew: wasNew,
+    sourceTitle: note.value.title,
+    title: newTitle.value,
+    content: newContent,
+    format: editorFormat.value,
+  });
+  note.value = data;
+  if (wasNew) {
+    await router.push({
+      name: "note",
+      params: { title: note.value.title },
+    });
+  } else {
+    await router.replace({ name: "note", params: { title: note.value.title } });
+  }
+  return data;
 }
 
 function updateTaskCheckboxMarkdown(content, taskIndex, checked) {
@@ -658,7 +566,7 @@ async function toggleTaskCheckbox({ index, checked }) {
       newContent,
       note.value.format || "html",
     );
-    clearDraft();
+    documentSession.clearDraft();
   } catch (error) {
     apiErrorHandler(error, toast);
     throw error;
@@ -681,12 +589,7 @@ function noteSaveFailure(error) {
   }
 }
 
-function noteSaveSuccess(close = false) {
-  unsavedChanges.value = false;
-  if (close) {
-    closeNote();
-  }
-  setBeforeUnloadConfirmation(false);
+function noteSaveSuccess() {
   toast.add(getToastOptions("Note saved successfully ✓", "Success", "success"));
 }
 
@@ -700,12 +603,11 @@ function closeHandler() {
 }
 
 function closeNote() {
-  clearDraft();
-  editMode.value = false;
+  documentSession.clearDraft();
+  documentSession.setDirty(false);
+  documentSession.leaveEdit();
   if (isNewNote.value) {
     router.push({ name: "home" });
-  } else {
-    editMode.value = false;
   }
 }
 
@@ -779,38 +681,12 @@ function clearContentChangedTimeout() {
 
 function contentChangedHandler() {
   if (isContentChanged()) {
-    unsavedChanges.value = true;
-    setBeforeUnloadConfirmation(true);
-    saveDraft();
+    documentSession.setDirty(true);
+    documentSession.saveDraft(getEditorContent());
   } else {
-    unsavedChanges.value = false;
-    setBeforeUnloadConfirmation(false);
-    clearDraft();
+    documentSession.setDirty(false);
+    documentSession.clearDraft();
   }
-}
-
-// Drafts
-function saveDraft() {
-  const content = getEditorContent();
-  const userHasPersistedToken = isCurrentTokenStored();
-  if (content) {
-    if (userHasPersistedToken) {
-      localStorage.setItem(note.value.title, content);
-    } else {
-      sessionStorage.setItem(note.value.title, content);
-    }
-  }
-}
-
-function clearDraft() {
-  localStorage.removeItem(note.value.title);
-  sessionStorage.removeItem(note.value.title);
-}
-
-function loadDraft() {
-  const localDraft = localStorage.getItem(note.value.title);
-  const sessionDraft = sessionStorage.getItem(note.value.title);
-  return localDraft || sessionDraft;
 }
 
 // Keyboard Shortcuts
@@ -822,14 +698,7 @@ Mousetrap.bind("e", () => {
 });
 
 function keydownHandler(event) {
-  // Ctrl + Enter to save
-  if ((event.ctrlKey || event.metaKey) && event.key == "Enter") {
-    saveHandler((close = false));
-  }
-  // Escape to exit edit mode
-  if (event.key == "Escape") {
-    closeHandler();
-  }
+  documentSession.keydownHandler(event);
 }
 
 // Helpers
@@ -851,16 +720,6 @@ function badFilenameToast(entityName) {
       "error",
     ),
   );
-}
-
-function setBeforeUnloadConfirmation(enable = true) {
-  if (enable) {
-    window.onbeforeunload = () => {
-      return true;
-    };
-  } else {
-    window.onbeforeunload = null;
-  }
 }
 
 function saveDefaultEditorMode() {
@@ -926,11 +785,10 @@ function setNewNoteKind(kind) {
   localStorage.setItem("nirvNotesNewNoteKind", kind);
   note.value.content =
     kind === "work" ? buildWorkNoteHtml(newTitle.value || "Untitled", "") : "";
-  clearDraft();
+  documentSession.clearDraft();
   unsavedChanges.value = false;
   editorKey.value += 1;
 }
-
 
 function getNoteSourceContent() {
   return note.value.content || "";
@@ -994,11 +852,7 @@ function removeAbstractLikeLead(documentRoot) {
 
     const toRemove = [heading];
     let next = heading.nextElementSibling;
-    while (
-      next &&
-      !/^H[1-6]$/.test(next.tagName) &&
-      toRemove.length < 4
-    ) {
+    while (next && !/^H[1-6]$/.test(next.tagName) && toRemove.length < 4) {
       toRemove.push(next);
       next = next.nextElementSibling;
     }
@@ -1071,30 +925,26 @@ function getNoteLink() {
   return `${window.location.origin}${resolved.href}`;
 }
 
-async function copyNote(kind = "default") {
+function getCopyPayload(kind = "default") {
   const copyKind = kind === "default" ? getDefaultCopyKind() : kind;
-  try {
-    if (copyKind === "link") {
-      await writePlainTextToClipboard(getNoteLink());
-    } else if (copyKind === "html") {
-      const html = extractBodyHtml(getNoteSourceContent());
-      await writeHtmlToClipboard(html, htmlToPlainText(html));
-    } else if (copyKind === "source") {
-      const source = getMarkdownSource();
-      if (isWorkNote.value || !isHtmlFormat.value) {
-        await writeMarkdownToClipboard(source);
-      } else {
-        await writePlainTextToClipboard(source);
-      }
-    } else {
-      await writePlainTextToClipboard(getCleanNoteTextContent());
-    }
-    toast.add(getToastOptions(getCopyLabel(copyKind), "Copied", "success"));
-  } catch {
-    toast.add(
-      getToastOptions("Could not copy this note.", "Copy Failed", "error"),
-    );
+  if (copyKind === "link") {
+    return { type: "text", content: getNoteLink() };
   }
+  if (copyKind === "html") {
+    const html = extractBodyHtml(getNoteSourceContent());
+    return { type: "html", content: html, plainText: htmlToPlainText(html) };
+  }
+  if (copyKind === "source") {
+    return {
+      type: isWorkNote.value || !isHtmlFormat.value ? "markdown" : "text",
+      content: getMarkdownSource(),
+    };
+  }
+  return { type: "text", content: getCleanNoteTextContent() };
+}
+
+function copyNote(kind = "default") {
+  return documentSession.copy(kind);
 }
 
 function getCopyMenuItems() {
@@ -1193,6 +1043,11 @@ function getEditorContent() {
 
 watchEffect(updateNoteActions);
 watch(() => props.title, init);
+watch(newTitle, () => {
+  if (editMode.value) {
+    startContentChangedTimeout();
+  }
+});
 watch(
   () => props.initialTitle,
   () => {
@@ -1203,7 +1058,11 @@ watch(
   },
 );
 onMounted(init);
-onUnmounted(() => globalStore.clearNoteActions());
+onUnmounted(() => {
+  clearContentChangedTimeout();
+  Mousetrap.unbind("e");
+  globalStore.clearNoteActions();
+});
 </script>
 
 <style scoped>
@@ -1259,7 +1118,6 @@ onUnmounted(() => globalStore.clearNoteActions());
   max-width: none;
   margin-inline: auto;
 }
-
 
 @supports not (overflow: clip) {
   .flatnotes-note-shell,

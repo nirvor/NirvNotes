@@ -132,12 +132,16 @@ function warmCommonNoteViews() {
       import("./components/html/HtmlViewer.vue"),
       import("./components/toastui/ToastViewer.vue"),
       import("./components/work/WorkNoteViewer.vue"),
+      import("./components/toastui/renderEnhancements.js"),
     ]).catch(() => {});
   };
 
   if ("requestIdleCallback" in window) {
-    if (window.pywebview || document.body.classList.contains("nirvnotes-native-host")) {
-      window.setTimeout(run, 180);
+    if (
+      window.pywebview ||
+      document.body.classList.contains("nirvnotes-native-host")
+    ) {
+      window.setTimeout(run, 450);
       return;
     }
     window.requestIdleCallback(run, { timeout: 2200 });
@@ -170,7 +174,6 @@ loadTheme();
 .flatnotes-app-shell-note-research {
   max-width: min(100%, 76rem);
 }
-
 
 .flatnotes-app-shell-dashboard,
 .flatnotes-app-shell-note.flatnotes-app-shell-dashboard {

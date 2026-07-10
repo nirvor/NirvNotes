@@ -21,6 +21,10 @@ It also creates Start Menu and Desktop shortcuts, registers NirvNotes as an
 Open With app for `.md`, `.txt`, `.cfg`, and `.ini`, and adds a normal Windows
 uninstaller entry.
 
+This installer is required once for the updater-capable client. Future releases
+appear as `Update NirvNotes` in the app menu and install without extracting a
+new installer package manually.
+
 ## Cloud/backend behavior
 
 The desktop app uses the live RackNerd NirvNotes endpoint by default:

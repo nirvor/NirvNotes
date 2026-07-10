@@ -39,9 +39,11 @@ try {
     }
   }
 
+  $Commit = Get-GitValue "rev-parse HEAD"
+
   if (-not $SkipAppBuild) {
     Write-Step "Building Windows app"
-    & (Join-Path $WindowsClientRoot "build.ps1")
+    & (Join-Path $WindowsClientRoot "build.ps1") -Version $Version -Commit $Commit
   }
 
   if (!(Test-Path (Join-Path $AppDist "NirvNotes.exe"))) {
@@ -76,7 +78,6 @@ try {
   Copy-Item -Path (Join-Path $InstallerRoot "Uninstall-NirvNotes.ps1") -Destination $StageDir -Force
   Copy-Item -Path (Join-Path $InstallerRoot "README.md") -Destination $StageDir -Force
 
-  $Commit = Get-GitValue "rev-parse HEAD"
   $Manifest = [ordered]@{
     name = "NirvNotes Win11 installer"
     version = $Version
@@ -92,6 +93,18 @@ try {
   Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue
   Compress-Archive -Path (Join-Path $StageDir "*") -DestinationPath $ZipPath -Force
   Write-Host $ZipPath
+
+  $PackageHash = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $PackageInfo = Get-Item -LiteralPath $ZipPath
+  $UpdateManifest = [ordered]@{
+    version = $Version
+    commit = $Commit
+    file = $PackageInfo.Name
+    sha256 = $PackageHash
+    size = $PackageInfo.Length
+    publishedAt = (Get-Date).ToString("s")
+  }
+  $UpdateManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ArtifactsDir "NirvNotes-update.json") -Encoding UTF8
 
   Write-Step "Done"
   Get-ChildItem $ArtifactsDir | Sort-Object LastWriteTime -Descending | Select-Object Name,Length,LastWriteTime

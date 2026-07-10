@@ -1,5 +1,7 @@
 param(
-  [string]$Name = "NirvNotes"
+  [string]$Name = "NirvNotes",
+  [string]$Version = "",
+  [string]$Commit = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,6 +12,26 @@ $Icon = Join-Path $Root "client\assets\favicon.ico"
 $Entry = Join-Path $PSScriptRoot "nirvnotes_client.py"
 $Dist = Join-Path $PSScriptRoot "dist"
 $Build = Join-Path $PSScriptRoot "build"
+$UpdaterScript = Join-Path $PSScriptRoot "apply-update.ps1"
+$MetadataDir = Join-Path $env:TEMP "NirvNotes-build-metadata-$PID"
+$VersionMetadata = Join-Path $MetadataDir "client-version.json"
+
+if (-not $Commit) {
+  $Commit = (& git -C $Root rev-parse HEAD 2>$null | Select-Object -First 1)
+}
+if (-not $Version) {
+  $Version = (& git -C $Root rev-parse --short HEAD 2>$null | Select-Object -First 1)
+}
+if (-not $Version) {
+  $Version = Get-Date -Format "yyyyMMdd-HHmmss"
+}
+
+New-Item -ItemType Directory -Path $MetadataDir -Force | Out-Null
+[ordered]@{
+  version = $Version
+  commit = $Commit
+  builtAt = (Get-Date).ToString("s")
+} | ConvertTo-Json | Set-Content -LiteralPath $VersionMetadata -Encoding UTF8
 
 Get-CimInstance Win32_Process |
   Where-Object {
@@ -46,9 +68,12 @@ try {
     --workpath $Build `
     --specpath $Build `
     --add-data "$Icon;client\assets" `
+    --add-data "$VersionMetadata;." `
+    --add-data "$UpdaterScript;." `
     $Entry
 } finally {
   Pop-Location
+  Remove-Item -LiteralPath $MetadataDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 $Exe = Join-Path $Dist "$Name\$Name.exe"

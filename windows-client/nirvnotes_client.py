@@ -3,21 +3,26 @@ from __future__ import annotations
 import argparse
 import contextlib
 import ctypes
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import logging
 from logging.handlers import RotatingFileHandler
 import os
 import socket
+import shutil
+import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
 
 import webview
 from webview.menu import Menu, MenuAction, MenuSeparator
+import urllib3
 
 
 DEFAULT_URL = "https://racknerd-31fcf0d.tail38b5b3.ts.net:8092"
@@ -31,6 +36,10 @@ HANDOFF_TIMEOUT_SECONDS = 0.35
 INSTANCE_RECORD_MAX_AGE_SECONDS = 30
 INSTANCE_HEARTBEAT_SECONDS = 2.0
 WINDOW_STATE_PERSIST_SECONDS = 1.5
+UPDATE_STATUS_TTL_SECONDS = 10 * 60
+UPDATE_MANIFEST_PATH = "/api/windows-client-update"
+CLIENT_METADATA_FILE = "client-version.json"
+UPDATE_SCRIPT_FILE = "apply-update.ps1"
 ALLOWED_EXTENSIONS = {".md", ".txt", ".cfg", ".ini"}
 TEXT_TYPES = {
     ".md": "text/markdown",
@@ -124,10 +133,19 @@ class NativeFileStore:
 
 
 class NirvNotesApi:
-    def __init__(self, file_store: NativeFileStore, launch_paths: list[str]) -> None:
+    def __init__(
+        self,
+        file_store: NativeFileStore,
+        launch_paths: list[str],
+        update_base_url: str,
+    ) -> None:
         self._file_store = file_store
         self._pending_launch_files = file_store.payloads_for_paths(launch_paths)
         self._window: webview.Window | None = None
+        self._update_base_url = update_base_url.rstrip("/")
+        self._update_status: dict[str, Any] | None = None
+        self._update_checked_at = 0.0
+        self._update_lock = threading.Lock()
 
     def consume_launch_files(self) -> list[dict[str, Any]]:
         payloads = self._pending_launch_files
@@ -168,6 +186,139 @@ class NirvNotesApi:
 
         return len(payloads)
 
+    def get_client_update_status(self, force: bool = False) -> dict[str, Any]:
+        now = time.monotonic()
+        if (
+            not force
+            and self._update_status is not None
+            and now - self._update_checked_at < UPDATE_STATUS_TTL_SECONDS
+        ):
+            return dict(self._update_status)
+
+        metadata = load_client_metadata()
+        status: dict[str, Any] = {
+            "checked": True,
+            "available": False,
+            "currentVersion": metadata.get("version", "dev"),
+            "currentCommit": metadata.get("commit", ""),
+            "canInstall": bool(getattr(sys, "frozen", False)),
+        }
+        manifest_url = parse.urljoin(
+            f"{self._update_base_url}/",
+            UPDATE_MANIFEST_PATH.lstrip("/"),
+        )
+
+        try:
+            with request.urlopen(manifest_url, timeout=8) as response:
+                manifest = json.loads(response.read().decode("utf-8-sig"))
+            validate_update_manifest(manifest)
+            status.update(
+                {
+                    "available": is_update_available(metadata, manifest),
+                    "version": manifest["version"],
+                    "commit": manifest["commit"],
+                    "size": int(manifest["size"]),
+                    "sha256": manifest["sha256"].lower(),
+                    "downloadUrl": parse.urljoin(
+                        f"{self._update_base_url}/",
+                        str(manifest["downloadUrl"]).lstrip("/"),
+                    ),
+                    "file": Path(str(manifest["file"])).name,
+                }
+            )
+        except error.HTTPError as exc:
+            if exc.code != 404:
+                status["error"] = "Could not check for NirvNotes updates."
+                logging.info("update check failed http=%s", exc.code)
+        except (OSError, ValueError, json.JSONDecodeError, KeyError) as exc:
+            status["error"] = "Could not check for NirvNotes updates."
+            logging.info("update check failed: %s", exc)
+
+        self._update_status = status
+        self._update_checked_at = now
+        return dict(status)
+
+    def install_client_update(self) -> dict[str, Any]:
+        if not self._update_lock.acquire(blocking=False):
+            return {"started": False, "error": "An update is already running."}
+
+        try:
+            status = self.get_client_update_status(force=True)
+            if not status.get("available"):
+                return {"started": False, "error": "No update is available."}
+            if not status.get("canInstall"):
+                return {
+                    "started": False,
+                    "error": "This development client cannot update itself.",
+                }
+
+            update_root = local_app_root() / "updates"
+            update_root.mkdir(parents=True, exist_ok=True)
+            package_path = update_root / status["file"]
+            temporary_path = package_path.with_suffix(package_path.suffix + ".download")
+            download_update_package(status["downloadUrl"], temporary_path)
+
+            if temporary_path.stat().st_size != int(status["size"]):
+                raise ValueError("Downloaded update size does not match the manifest.")
+            if sha256_file(temporary_path) != status["sha256"]:
+                raise ValueError("Downloaded update hash does not match the manifest.")
+            temporary_path.replace(package_path)
+
+            updater_source = Path(resource_path(UPDATE_SCRIPT_FILE))
+            if not updater_source.is_file():
+                raise FileNotFoundError("The NirvNotes updater script is missing.")
+            updater_path = update_root / UPDATE_SCRIPT_FILE
+            shutil.copy2(updater_source, updater_path)
+
+            install_dir = Path(sys.executable).resolve().parent
+            command = [
+                "powershell.exe",
+                "-NoProfile",
+                "-WindowStyle",
+                "Hidden",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(updater_path),
+                "-ParentProcessId",
+                str(os.getpid()),
+                "-PackagePath",
+                str(package_path),
+                "-InstallDir",
+                str(install_dir),
+                "-ExpectedSha256",
+                status["sha256"],
+                "-Version",
+                status["version"],
+            ]
+            creation_flags = 0
+            if sys.platform == "win32":
+                creation_flags = (
+                    subprocess.CREATE_NEW_PROCESS_GROUP
+                    | subprocess.DETACHED_PROCESS
+                    | subprocess.CREATE_NO_WINDOW
+                )
+            subprocess.Popen(
+                command,
+                close_fds=True,
+                creationflags=creation_flags,
+            )
+            threading.Thread(
+                target=self._close_for_update,
+                daemon=True,
+            ).start()
+            return {"started": True, "version": status["version"]}
+        except (OSError, ValueError) as exc:
+            logging.exception("client update failed")
+            return {"started": False, "error": str(exc)}
+        finally:
+            self._update_lock.release()
+
+    def _close_for_update(self) -> None:
+        time.sleep(0.8)
+        if self._window:
+            self._window.destroy()
+
 
 def read_text(path: Path) -> tuple[str, str]:
     raw = path.read_bytes()
@@ -195,6 +346,80 @@ def resource_path(relative_path: str) -> str:
         if candidate.exists():
             return str(candidate)
     return str(candidates[0])
+
+
+def load_client_metadata() -> dict[str, str]:
+    try:
+        raw = Path(resource_path(CLIENT_METADATA_FILE)).read_text(
+            encoding="utf-8-sig"
+        )
+        metadata = json.loads(raw)
+        return {
+            "version": str(metadata.get("version", "dev")),
+            "commit": str(metadata.get("commit", "")),
+            "builtAt": str(metadata.get("builtAt", "")),
+        }
+    except (OSError, json.JSONDecodeError):
+        return {"version": "dev", "commit": "", "builtAt": ""}
+
+
+def validate_update_manifest(manifest: dict[str, Any]) -> None:
+    required = ("version", "commit", "file", "sha256", "size", "downloadUrl")
+    if any(not manifest.get(field) for field in required):
+        raise ValueError("Windows update manifest is incomplete.")
+    filename = Path(str(manifest["file"])).name
+    if filename != manifest["file"] or not filename.lower().endswith(".zip"):
+        raise ValueError("Windows update package name is invalid.")
+    sha256 = str(manifest["sha256"]).lower()
+    if len(sha256) != 64 or any(character not in "0123456789abcdef" for character in sha256):
+        raise ValueError("Windows update hash is invalid.")
+    if int(manifest["size"]) <= 0:
+        raise ValueError("Windows update package size is invalid.")
+
+
+def is_update_available(
+    current: dict[str, str], manifest: dict[str, Any]
+) -> bool:
+    current_commit = str(current.get("commit", "")).strip().lower()
+    next_commit = str(manifest.get("commit", "")).strip().lower()
+    if current_commit and next_commit:
+        if current_commit == next_commit:
+            return False
+        current_built_at = parse_iso_datetime(current.get("builtAt", ""))
+        update_built_at = parse_iso_datetime(manifest.get("publishedAt", ""))
+        if current_built_at and update_built_at:
+            return current_built_at < update_built_at
+        return True
+    return str(current.get("version", "")) != str(manifest.get("version", ""))
+
+
+def parse_iso_datetime(value: Any) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest().lower()
+
+
+def download_update_package(url: str, destination: Path) -> None:
+    destination.unlink(missing_ok=True)
+    try:
+        with request.urlopen(url, timeout=30) as response:
+            with destination.open("wb") as output:
+                shutil.copyfileobj(response, output, length=1024 * 1024)
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
 
 
 def local_app_root() -> Path:
@@ -475,6 +700,17 @@ class LocalProxyServer(ThreadingHTTPServer):
     def __init__(self, server_address: tuple[str, int], upstream_base_url: str) -> None:
         super().__init__(server_address, LocalProxyHandler)
         self.upstream_base_url = upstream_base_url.rstrip("/")
+        self.upstream_pool = urllib3.PoolManager(
+            num_pools=2,
+            maxsize=8,
+            block=True,
+            retries=False,
+            timeout=urllib3.Timeout(connect=5, read=30),
+        )
+
+    def server_close(self) -> None:
+        self.upstream_pool.clear()
+        super().server_close()
 
 
 class LocalProxyHandler(BaseHTTPRequestHandler):
@@ -512,17 +748,18 @@ class LocalProxyHandler(BaseHTTPRequestHandler):
             if key.lower() not in HOP_BY_HOP_HEADERS
         }
 
-        upstream_request = request.Request(
-            upstream_url,
-            data=body,
-            headers=headers,
-            method=self.command,
-        )
+        response = None
         try:
-            with request.urlopen(upstream_request, timeout=30) as response:
-                self._send_upstream_response(response.status, response.headers, response.read())
-        except error.HTTPError as response:
-            self._send_upstream_response(response.code, response.headers, response.read())
+            response = self.server.upstream_pool.request(  # type: ignore[attr-defined]
+                self.command,
+                upstream_url,
+                body=body,
+                headers=headers,
+                preload_content=False,
+                decode_content=False,
+                redirect=False,
+            )
+            self._send_upstream_response(response.status, response.headers, response)
         except Exception as exc:
             payload = f"NirvNotes local proxy could not reach upstream: {exc}".encode(
                 "utf-8",
@@ -534,11 +771,31 @@ class LocalProxyHandler(BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.end_headers()
             self.wfile.write(payload)
+        finally:
+            if response is not None:
+                response.release_conn()
 
-    def _send_upstream_response(self, status: int, headers: Any, payload: bytes) -> None:
+    def _send_upstream_response(self, status: int, headers: Any, response: Any) -> None:
+        content_length = headers.get("Content-Length")
+        if content_length is None:
+            payload = response.read()
+            self._send_buffered_response(status, headers, payload)
+            return
+
         self.send_response(status)
         for key, value in headers.items():
-            if key.lower() in HOP_BY_HOP_HEADERS:
+            if key.lower() in HOP_BY_HOP_HEADERS or key.lower() == "content-length":
+                continue
+            self.send_header(key, value)
+        self.send_header("Content-Length", content_length)
+        self.end_headers()
+        for chunk in response.stream(64 * 1024, decode_content=False):
+            self.wfile.write(chunk)
+
+    def _send_buffered_response(self, status: int, headers: Any, payload: bytes) -> None:
+        self.send_response(status)
+        for key, value in headers.items():
+            if key.lower() in HOP_BY_HOP_HEADERS or key.lower() == "content-length":
                 continue
             self.send_header(key, value)
         self.send_header("Content-Length", str(len(payload)))
@@ -1001,7 +1258,6 @@ def main() -> None:
         return
 
     file_store = NativeFileStore()
-    api = NirvNotesApi(file_store, args.files)
     base_url = args.url.rstrip("/") or DEFAULT_URL
     proxy_server: LocalProxyServer | None = None
     handoff_server: HandoffServer | None = None
@@ -1010,6 +1266,7 @@ def main() -> None:
     if should_proxy_url(base_url, args.direct):
         browser_base_url, proxy_server = start_local_proxy(base_url, args.proxy_port)
 
+    api = NirvNotesApi(file_store, args.files, browser_base_url)
     start_url = build_url(browser_base_url, args.files)
     logging.info("start url prepared %s", start_url)
     window_ref: dict[str, webview.Window] = {}
@@ -1060,8 +1317,10 @@ def main() -> None:
             instance_registration_stop.set()
         if handoff_server:
             handoff_server.shutdown()
+            handoff_server.server_close()
         if proxy_server:
             proxy_server.shutdown()
+            proxy_server.server_close()
 
 
 if __name__ == "__main__":

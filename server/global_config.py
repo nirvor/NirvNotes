@@ -15,6 +15,7 @@ class GlobalConfig:
         self.quick_access_sort: str = self._quick_access_sort()
         self.quick_access_limit: int = self._quick_access_limit()
         self.path_prefix: str = self._load_path_prefix()
+        self.windows_update_dir: str = self._load_windows_update_dir()
 
     def load_auth(self):
         if self.auth_type in (AuthType.NONE, AuthType.READ_ONLY):
@@ -100,6 +101,13 @@ class GlobalConfig:
             )
             sys.exit(1)
         return value
+
+    def _load_windows_update_dir(self):
+        return get_env(
+            "NIRVNOTES_WINDOWS_UPDATE_DIR",
+            mandatory=False,
+            default="",
+        )
 
 
 class AuthType(str, Enum):

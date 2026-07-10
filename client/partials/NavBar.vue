@@ -66,7 +66,7 @@
 </template>
 
 <script setup>
-import { mdiBookMultipleOutline } from "@mdi/js";
+import { mdiBookMultipleOutline, mdiUpdate } from "@mdi/js";
 import {
   mdilLogout,
   mdilHome,
@@ -77,7 +77,8 @@ import {
   mdilPlusBox,
   mdilPlusCircle,
 } from "@mdi/light-js";
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useToast } from "primevue/usetoast";
 import { RouterLink, useRouter } from "vue-router";
 
 import { clearApiCaches } from "../api.js";
@@ -85,66 +86,125 @@ import CustomButton from "../components/CustomButton.vue";
 import PrimeMenu from "../components/PrimeMenu.vue";
 import { authTypes, params, searchSortOptions } from "../constants.js";
 import { useGlobalStore } from "../globalStore.js";
-import { toggleTheme } from "../helpers.js";
+import { getToastOptions, toggleTheme } from "../helpers.js";
+import {
+  checkNativeClientUpdate,
+  installNativeClientUpdate,
+  nativeClientUpdate,
+} from "../nativeClientUpdate.js";
 import { clearStoredToken } from "../tokenStorage.js";
 
 const globalStore = useGlobalStore();
 const menu = ref();
 const router = useRouter();
+const toast = useToast();
+let nativeUpdateCheckTimer = null;
 
 const emit = defineEmits(["toggleSearchModal"]);
 
-const baseMenuItems = [
-  {
-    label: "New Window",
-    icon: mdilPlusBox,
-    command: openNewWindow,
-  },
-  {
-    separator: true,
-  },
-  {
-    label: "Search",
-    icon: mdilMagnify,
-    command: () => emit("toggleSearchModal"),
-    keyboardShortcut: "/",
-  },
-  {
-    label: "All Notes",
-    icon: mdilNoteMultiple,
-    command: () =>
-      router.push({
-        name: "search",
-        query: {
-          [params.searchTerm]: "*",
-          [params.sortBy]: searchSortOptions.lastModified,
-        },
-      }),
-  },
-  {
-    label: "Toggle Theme",
-    icon: mdilMonitor,
-    command: toggleTheme,
-  },
-  {
-    separator: true,
-    visible: showLogOutButton,
-  },
-  {
-    label: "Log Out",
-    icon: mdilLogout,
-    command: logOut,
-    visible: showLogOutButton,
-  },
-];
+const baseMenuItems = computed(() => {
+  const items = [
+    {
+      label: "New Window",
+      icon: mdilPlusBox,
+      command: openNewWindow,
+    },
+  ];
+  if (nativeClientUpdate.available) {
+    items.push({
+      label: nativeClientUpdate.installing
+        ? "Updating NirvNotes..."
+        : "Update NirvNotes",
+      icon: mdiUpdate,
+      disabled: nativeClientUpdate.installing || !nativeClientUpdate.canInstall,
+      command: startNativeClientUpdate,
+    });
+  }
+  items.push(
+    { separator: true },
+    {
+      label: "Search",
+      icon: mdilMagnify,
+      command: () => emit("toggleSearchModal"),
+      keyboardShortcut: "/",
+    },
+    {
+      label: "All Notes",
+      icon: mdilNoteMultiple,
+      command: () =>
+        router.push({
+          name: "search",
+          query: {
+            [params.searchTerm]: "*",
+            [params.sortBy]: searchSortOptions.lastModified,
+          },
+        }),
+    },
+    {
+      label: "Toggle Theme",
+      icon: mdilMonitor,
+      command: toggleTheme,
+    },
+    {
+      separator: true,
+      visible: showLogOutButton,
+    },
+    {
+      label: "Log Out",
+      icon: mdilLogout,
+      command: logOut,
+      visible: showLogOutButton,
+    },
+  );
+  return items;
+});
 
 const menuItems = computed(() => {
   const noteItems = globalStore.noteMenuItems || [];
   if (!noteItems.length) {
-    return baseMenuItems;
+    return baseMenuItems.value;
   }
 
-  return [...noteItems, { separator: true }, ...baseMenuItems];
+  return [...noteItems, { separator: true }, ...baseMenuItems.value];
+});
+
+async function startNativeClientUpdate() {
+  toast.add(getToastOptions("Downloading the NirvNotes update..."));
+  const result = await installNativeClientUpdate();
+  if (result?.started) {
+    toast.add(
+      getToastOptions(
+        "Update verified. NirvNotes will restart now.",
+        "Updating",
+        "success",
+      ),
+    );
+    return;
+  }
+  toast.add(
+    getToastOptions(
+      result?.error || "Could not start the NirvNotes update.",
+      "Update Failed",
+      "error",
+    ),
+  );
+}
+
+function checkForNativeUpdate() {
+  window.clearTimeout(nativeUpdateCheckTimer);
+  nativeUpdateCheckTimer = window.setTimeout(() => {
+    checkNativeClientUpdate().catch(() => {});
+  }, 2500);
+}
+
+onMounted(() => {
+  checkForNativeUpdate();
+  window.addEventListener("nirvnotes:native-ready", checkForNativeUpdate);
+});
+
+onBeforeUnmount(() => {
+  window.clearTimeout(nativeUpdateCheckTimer);
+  window.removeEventListener("nirvnotes:native-ready", checkForNativeUpdate);
 });
 
 const showNewButton = computed(() => {
@@ -181,9 +241,10 @@ function toggleNoteDrawer() {
 }
 
 function openNewWindow() {
-  const targetRoute = router.currentRoute.value.name === "openFile"
-    ? router.resolve({ name: "home" })
-    : router.resolve(router.currentRoute.value.fullPath || { name: "home" });
+  const targetRoute =
+    router.currentRoute.value.name === "openFile"
+      ? router.resolve({ name: "home" })
+      : router.resolve(router.currentRoute.value.fullPath || { name: "home" });
   window.open(targetRoute.href, "_blank", "noopener");
 }
 

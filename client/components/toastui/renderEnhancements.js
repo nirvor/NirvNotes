@@ -7,8 +7,6 @@ import {
   mdiOpenInNew,
   mdiTag,
 } from "@mdi/js";
-import katex from "katex";
-
 import { writePlainTextToClipboard } from "../../clipboard.js";
 import { recordTagUse } from "../../tagUsage.js";
 
@@ -130,6 +128,7 @@ const latexRenderOptions = {
 };
 
 let mermaidInstance;
+let katexInstance;
 let mermaidRenderCounter = 0;
 let mediaLightboxElement;
 let mediaLightboxLastFocusedElement;
@@ -1031,7 +1030,11 @@ export function enhanceCodeBlocks(rootElement) {
 
   rootElement
     .querySelectorAll(".toastui-editor-contents pre")
-    .forEach(decorateCodeBlock);
+    .forEach((preElement) => {
+      if (getCodeLanguage(preElement) !== mermaidLanguage) {
+        decorateCodeBlock(preElement);
+      }
+    });
 }
 
 function setTaskCheckboxesBusy(rootElement, isBusy, taskListOptions) {
@@ -1191,7 +1194,15 @@ function shouldSkipLatexTextNode(textNode) {
   return !parentElement || parentElement.closest(ignoredLatexSelector);
 }
 
-function renderInlineLatex(latexSource) {
+async function getKatexInstance() {
+  if (!katexInstance) {
+    const katexModule = await import("katex");
+    katexInstance = katexModule.default;
+  }
+  return katexInstance;
+}
+
+function renderInlineLatex(latexSource, katex) {
   const wrapper = document.createElement("span");
   wrapper.className = inlineLatexClass;
   wrapper.setAttribute("data-latex-source", latexSource);
@@ -1205,7 +1216,7 @@ function renderInlineLatex(latexSource) {
   return wrapper;
 }
 
-function replaceTextNodeWithInlineLatex(textNode) {
+function replaceTextNodeWithInlineLatex(textNode, katex) {
   const text = textNode.textContent;
   const segments = parseInlineLatexSegments(text);
   if (segments.length === 0) {
@@ -1220,7 +1231,7 @@ function replaceTextNodeWithInlineLatex(textNode) {
       fragment.append(document.createTextNode(text.slice(cursor, start)));
     }
 
-    const renderedLatex = renderInlineLatex(latexSource);
+    const renderedLatex = renderInlineLatex(latexSource, katex);
     fragment.append(
       renderedLatex || document.createTextNode(text.slice(start, end)),
     );
@@ -1234,7 +1245,7 @@ function replaceTextNodeWithInlineLatex(textNode) {
   textNode.parentNode.replaceChild(fragment, textNode);
 }
 
-export function enhanceInlineLatex(rootElement) {
+export async function enhanceInlineLatex(rootElement) {
   if (!rootElement) {
     return;
   }
@@ -1263,7 +1274,14 @@ export function enhanceInlineLatex(rootElement) {
     textNodes.push(walker.currentNode);
   }
 
-  textNodes.forEach(replaceTextNodeWithInlineLatex);
+  if (textNodes.length === 0) {
+    return;
+  }
+
+  const katex = await getKatexInstance();
+  textNodes.forEach((textNode) =>
+    replaceTextNodeWithInlineLatex(textNode, katex),
+  );
 }
 
 function shouldSkipArrowTextNode(textNode) {
@@ -1488,9 +1506,7 @@ export async function enhanceMermaidDiagrams(rootElement) {
 }
 
 export async function enhanceRenderedMarkdown(rootElement, options = {}) {
-  enhanceInlineLatex(rootElement);
   enhanceInlineArrows(rootElement);
-  await enhanceMermaidDiagrams(rootElement);
   enhanceCodeBlocks(rootElement);
   enhanceMediaImages(rootElement);
   if (options.noteLead !== false) {
@@ -1498,4 +1514,8 @@ export async function enhanceRenderedMarkdown(rootElement, options = {}) {
   }
   enhanceBottomTags(rootElement);
   enhanceTaskListCheckboxes(rootElement, options.taskList);
+  await Promise.all([
+    enhanceInlineLatex(rootElement),
+    enhanceMermaidDiagrams(rootElement),
+  ]);
 }

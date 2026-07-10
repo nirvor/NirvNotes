@@ -14,6 +14,18 @@ $AppName = "NirvNotes"
 $ProgId = "NirvNotes.TextFile"
 $Extensions = @(".md", ".txt", ".cfg", ".ini")
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$PackageVersion = "Win11 client"
+$PackageManifestPath = Join-Path $ScriptRoot "installer-manifest.json"
+if (Test-Path -LiteralPath $PackageManifestPath) {
+  try {
+    $PackageManifest = Get-Content -LiteralPath $PackageManifestPath -Raw | ConvertFrom-Json
+    if ($PackageManifest.version) {
+      $PackageVersion = [string]$PackageManifest.version
+    }
+  } catch {
+    $PackageVersion = "Win11 client"
+  }
+}
 
 function Write-Step([string]$Text) {
   Write-Host ""
@@ -91,6 +103,7 @@ function Copy-AppFiles(
 
   $InstallInfo = [ordered]@{
     app = $AppName
+    version = $PackageVersion
     serverUrl = $ServerUrl
     installedAt = (Get-Date).ToString("s")
     installDir = $TargetDir
@@ -155,7 +168,7 @@ function Register-Uninstaller([string]$ExePath, [string]$TargetDir) {
 
   New-Item -Path $UninstallKey -Force | Out-Null
   New-ItemProperty -Path $UninstallKey -Name "DisplayName" -Value "NirvNotes" -PropertyType String -Force | Out-Null
-  New-ItemProperty -Path $UninstallKey -Name "DisplayVersion" -Value "Win11 client" -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $UninstallKey -Name "DisplayVersion" -Value $PackageVersion -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $UninstallKey -Name "Publisher" -Value "NirvNotes" -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $UninstallKey -Name "InstallLocation" -Value $TargetDir -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $UninstallKey -Name "DisplayIcon" -Value "$ExePath,0" -PropertyType String -Force | Out-Null

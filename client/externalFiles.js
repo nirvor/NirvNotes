@@ -2,7 +2,10 @@ import { shallowRef } from "vue";
 
 export const externalFileLaunch = shallowRef(null);
 
-export function publishExternalFileLaunch(files, message = "Opened from Windows.") {
+export function publishExternalFileLaunch(
+  files,
+  message = "Opened from Windows.",
+) {
   externalFileLaunch.value = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     files,
@@ -65,6 +68,7 @@ function nativeWritableHandle(payload) {
   }
 
   return {
+    id: payload.id,
     name: payload.name,
     getFile,
     queryPermission: async () => "granted",

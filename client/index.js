@@ -143,6 +143,7 @@ function initializeNativeHost() {
 
   nativeHostInitialized = true;
   document.body.classList.add("nirvnotes-native-host");
+  window.dispatchEvent(new CustomEvent("nirvnotes:native-ready"));
   scheduleNativeLaunchFileConsumption();
 }
 

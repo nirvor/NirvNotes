@@ -42,7 +42,10 @@
       </span>
     </div>
 
-    <div v-if="files.length > 1" class="mb-3 flex flex-wrap gap-1.5 print:hidden">
+    <div
+      v-if="files.length > 1"
+      class="mb-3 flex flex-wrap gap-1.5 print:hidden"
+    >
       <button
         v-for="file in files"
         :key="file.key"
@@ -51,7 +54,7 @@
         :class="{
           'border-theme-brand text-theme-brand': activeFile?.key === file.key,
         }"
-        @click="activeKey = file.key"
+        @click="activateFile(file.key)"
       >
         {{ file.name }}
       </button>
@@ -64,14 +67,14 @@
       class="flatnotes-open-file-editor"
       spellcheck="false"
       @input="markActiveFileDirty"
-      @keydown.ctrl.s.prevent="saveActiveFile"
-      @keydown.meta.s.prevent="saveActiveFile"
+      @keydown="documentKeydownHandler"
     ></textarea>
 
     <pre
       v-else-if="activeFile && activeFile.previewMode === 'plain'"
       class="flatnotes-open-file-plain-preview"
-    >{{ activeFile.draftContent }}</pre>
+      >{{ activeFile.draftContent }}</pre
+    >
 
     <ToastViewer
       v-else-if="activeFile"
@@ -92,8 +95,8 @@
         class="mb-2 justify-center"
       />
       <p>
-        Open a .md, .txt, .cfg, or .ini file through Windows, or choose one here.
-        Nothing is saved into NirvNotes.
+        Open a .md, .txt, .cfg, or .ini file through Windows, or choose one
+        here. Nothing is saved into NirvNotes.
       </p>
     </div>
   </section>
@@ -108,7 +111,6 @@ import {
   mdiClose,
   mdiContentSaveOutline,
   mdiContentCopy,
-  mdiEyeOutline,
   mdiFileDocumentOutline,
   mdiFolderOpenOutline,
   mdiPencilOutline,
@@ -116,7 +118,6 @@ import {
 import {
   computed,
   defineAsyncComponent,
-  nextTick,
   onMounted,
   onUnmounted,
   ref,
@@ -125,11 +126,9 @@ import {
 } from "vue";
 import { useRouter } from "vue-router";
 
-import {
-  writeMarkdownToClipboard,
-  writePlainTextToClipboard,
-} from "../clipboard.js";
 import IconLabel from "../components/IconLabel.vue";
+import { useDocumentSession } from "../documents/documentSession.js";
+import { createLocalFileStorageAdapter } from "../documents/storageAdapters.js";
 import {
   externalFileLaunch,
   supportsFileHandlingLaunchQueue,
@@ -137,12 +136,10 @@ import {
 } from "../externalFiles.js";
 import { useGlobalStore } from "../globalStore.js";
 
-const ToastViewer = defineAsyncComponent(() =>
-  import("../components/toastui/ToastViewer.vue"),
+const ToastViewer = defineAsyncComponent(
+  () => import("../components/toastui/ToastViewer.vue"),
 );
 
-const copied = ref(false);
-const editMode = ref(false);
 const editorTextarea = ref();
 const fileInput = ref();
 const files = ref([]);
@@ -152,18 +149,39 @@ const statusMessage = ref("");
 const statusTone = ref("info");
 const router = useRouter();
 const globalStore = useGlobalStore();
-const editDoubleTapDelayMs = 420;
-const editDoubleTapDistancePx = 28;
-let lastContentTap = null;
+const localFileStorageAdapter = createLocalFileStorageAdapter();
 
 const activeFile = computed(
   () => files.value.find((file) => file.key === activeKey.value) || null,
 );
+const documentSession = useDocumentSession({
+  canEdit: () => Boolean(activeFile.value),
+  hasDocument: () => Boolean(activeFile.value),
+  requestClose: finishEditing,
+  focusEditor: () => editorTextarea.value?.focus({ preventScroll: true }),
+  beforeLeaveEdit: () => {
+    if (activeFile.value) {
+      refreshPreview(activeFile.value);
+    }
+  },
+  draftKey: () => activeFile.value?.draftStorageKey || "",
+  persistDraft: true,
+  saveDocument: persistActiveFile,
+  copyDocument: getActiveFileCopyPayload,
+  afterSave: () => showStatus("Saved to original file."),
+  onSaveError: handleActiveFileSaveError,
+  afterCopy: () => showStatus("Copied raw source to clipboard."),
+  onCopyError: () => showStatus("Could not copy this file.", "error"),
+});
+const editMode = documentSession.editMode;
+const copied = documentSession.copied;
+const openFileDblClickHandler = documentSession.contentDblClickHandler;
+const openFilePointerUpHandler = documentSession.contentPointerUpHandler;
 const canSaveActiveFile = computed(
   () =>
     Boolean(activeFile.value?.handle) &&
     Boolean(activeFile.value?.dirty) &&
-    !activeFile.value?.saving,
+    !documentSession.saving.value,
 );
 const metadataItems = computed(() => {
   if (!activeFile.value) {
@@ -181,14 +199,6 @@ const visibleStatusMessage = computed(() =>
 const statusIcon = computed(() =>
   statusTone.value === "error" ? mdiAlertCircleOutline : mdiCheckCircleOutline,
 );
-const saveButtonTitle = computed(() => {
-  if (!activeFile.value?.handle) {
-    return "Read-only: no writable file handle";
-  }
-
-  return activeFile.value.dirty ? "Save to original file" : "Saved";
-});
-
 onMounted(() => {
   if (!supportsFileHandlingLaunchQueue() && !supportsNativeFileBridge()) {
     showStatus(
@@ -207,11 +217,11 @@ function updateOpenFileActions() {
   globalStore.setNoteActions([
     {
       key: "external-edit",
-      label: editMode.value ? "Preview" : "Edit",
-      iconPath: editMode.value ? mdiEyeOutline : mdiPencilOutline,
+      label: editMode.value ? "Done" : "Edit",
+      iconPath: editMode.value ? mdiCheck : mdiPencilOutline,
       visible: Boolean(file),
       iconOnly: true,
-      handler: toggleEditMode,
+      handler: editMode.value ? finishEditing : () => setEditMode(true),
     },
     {
       key: "external-save",
@@ -223,7 +233,7 @@ function updateOpenFileActions() {
       iconOnly: true,
       handler: () => {
         if (canSaveActiveFile.value) {
-          saveActiveFile();
+          saveActiveFile(false);
         }
       },
     },
@@ -304,112 +314,25 @@ function closeExternalFile() {
     return;
   }
 
+  files.value.forEach((file) => {
+    documentSession.clearDraft(file.draftStorageKey);
+  });
   files.value = [];
   activeKey.value = null;
   statusMessage.value = "";
-  copied.value = false;
-  editMode.value = false;
+  documentSession.leaveEdit();
+  documentSession.setDirty(false);
   router.push({ name: "home" });
 }
 
-function isIgnoredEditTriggerTarget(target) {
-  if (!(target instanceof Element)) {
-    return false;
-  }
-
-  return Boolean(
-    target.closest(
-      [
-        "a",
-        "button",
-        "input",
-        "textarea",
-        "select",
-        "label",
-        "summary",
-        "[role='button']",
-        "pre",
-        "code",
-        ".flatnotes-code-block-wrapper",
-        ".flatnotes-bottom-tags",
-        ".flatnotes-media-button",
-        ".flatnotes-media-lightbox",
-        ".katex",
-      ].join(","),
-    ),
-  );
-}
-
-function canStartEditFromContent(event, { allowSelection = false } = {}) {
-  const selection = window.getSelection?.();
-  const hasSelection = Boolean(
-    selection && !selection.isCollapsed && selection.toString(),
-  );
-
-  return (
-    Boolean(activeFile.value) &&
-    !editMode.value &&
-    !event.defaultPrevented &&
-    (event.button == null || event.button === 0) &&
-    (allowSelection || !hasSelection) &&
-    !isIgnoredEditTriggerTarget(event.target)
-  );
-}
-
-function startEditFromContent(event, options = {}) {
-  if (!canStartEditFromContent(event, options)) {
-    return false;
-  }
-
-  event.preventDefault();
-  setEditMode(true);
-  return true;
-}
-
-function openFileDblClickHandler(event) {
-  lastContentTap = null;
-  startEditFromContent(event, { allowSelection: true });
-}
-
-function openFilePointerUpHandler(event) {
-  const previousTap = lastContentTap;
-  if (
-    !canStartEditFromContent(event, {
-      allowSelection: Boolean(previousTap),
-    })
-  ) {
-    lastContentTap = null;
+function activateFile(key) {
+  if (key === activeKey.value) {
     return;
   }
-
-  const now = window.performance?.now?.() || Date.now();
-  const nextTap = {
-    time: now,
-    x: event.clientX,
-    y: event.clientY,
-  };
-
-  lastContentTap = nextTap;
-  window.setTimeout(() => {
-    if (lastContentTap === nextTap) {
-      lastContentTap = null;
-    }
-  }, editDoubleTapDelayMs + 40);
-
-  if (!previousTap || now - previousTap.time > editDoubleTapDelayMs) {
-    return;
-  }
-
-  const distance = Math.hypot(
-    event.clientX - previousTap.x,
-    event.clientY - previousTap.y,
-  );
-  if (distance > editDoubleTapDistancePx) {
-    return;
-  }
-
-  lastContentTap = null;
-  startEditFromContent(event, { allowSelection: true });
+  documentSession.leaveEdit();
+  activeKey.value = key;
+  restoreActiveDraft();
+  documentSession.setDirty(Boolean(activeFile.value?.dirty));
 }
 
 async function fileInputChanged(event) {
@@ -430,9 +353,10 @@ async function loadFiles(selectedFiles, message) {
 
   files.value = readableFiles;
   activeKey.value = readableFiles[0]?.key || null;
-  copied.value = false;
-  editMode.value = false;
+  documentSession.leaveEdit();
+  documentSession.setDirty(false);
   if (readableFiles.length) {
+    restoreActiveDraft();
     showStatus(message);
   }
 }
@@ -441,8 +365,14 @@ async function fileToPreview(selectedFile) {
   const { file, handle } = normalizeSelectedFile(selectedFile);
   const content = await file.text();
   const extension = getExtension(file.name);
-  const previewMarkdown = contentToPreviewMarkdown(content, extension, file.type);
-  const previewMode = isMarkdownFile(extension, file.type) ? "markdown" : "plain";
+  const previewMarkdown = contentToPreviewMarkdown(
+    content,
+    extension,
+    file.type,
+  );
+  const previewMode = isMarkdownFile(extension, file.type)
+    ? "markdown"
+    : "plain";
 
   return {
     key: `${file.name}-${file.size}-${file.lastModified}-${Math.random()
@@ -453,14 +383,39 @@ async function fileToPreview(selectedFile) {
     type: file.type,
     extension,
     handle,
+    draftStorageKey: localDraftStorageKey(file, handle),
     content,
     draftContent: content,
     previewMode,
     previewMarkdown,
     lastModified: file.lastModified,
     dirty: false,
-    saving: false,
+    draftRestored: false,
   };
+}
+
+function localDraftStorageKey(file, handle) {
+  const identity = handle?.id || `${file.name}:${file.lastModified}`;
+  return `local:${identity}`;
+}
+
+function restoreActiveDraft() {
+  const file = activeFile.value;
+  if (!file || file.draftRestored) {
+    return;
+  }
+
+  file.draftRestored = true;
+  const draft = documentSession.loadDraft(file.draftStorageKey);
+  if (draft == null || draft === file.content) {
+    return;
+  }
+
+  file.draftContent = draft;
+  file.dirty = true;
+  refreshPreview(file);
+  documentSession.setDirty(true);
+  showStatus("Unsaved local draft restored.");
 }
 
 function normalizeSelectedFile(selectedFile) {
@@ -520,7 +475,11 @@ function normalizeMetadataKey(key = "") {
 function compactMetadataValue(key, value) {
   const normalizedKey = normalizeMetadataKey(key);
   const cleaned = stripInlineMarkdown(value);
-  if (!cleaned || normalizedKey === "original writer" || normalizedKey === "writer") {
+  if (
+    !cleaned ||
+    normalizedKey === "original writer" ||
+    normalizedKey === "writer"
+  ) {
     return "";
   }
 
@@ -620,7 +579,14 @@ function markActiveFileDirty() {
     return;
   }
 
-  activeFile.value.dirty = activeFile.value.draftContent !== activeFile.value.content;
+  activeFile.value.dirty =
+    activeFile.value.draftContent !== activeFile.value.content;
+  documentSession.setDirty(activeFile.value.dirty);
+  if (activeFile.value.dirty) {
+    documentSession.saveDraft(activeFile.value.draftContent);
+  } else {
+    documentSession.clearDraft();
+  }
 }
 
 function refreshPreview(file) {
@@ -631,76 +597,62 @@ function refreshPreview(file) {
   );
 }
 
-function toggleEditMode() {
+function setEditMode(value) {
+  if (value) {
+    documentSession.enterEdit();
+  } else {
+    documentSession.leaveEdit();
+  }
+}
+
+function finishEditing() {
   if (!activeFile.value) {
     return;
   }
-
-  if (editMode.value) {
-    refreshPreview(activeFile.value);
-  }
-  setEditMode(!editMode.value);
-}
-
-function setEditMode(value) {
-  editMode.value = value;
-  if (editMode.value) {
-    nextTick(() => editorTextarea.value?.focus({ preventScroll: true }));
+  if (activeFile.value.dirty) {
+    saveActiveFile(true);
+  } else {
+    documentSession.leaveEdit();
   }
 }
 
-async function saveActiveFile() {
+function saveActiveFile(close = false) {
+  return documentSession.save({ close });
+}
+
+async function persistActiveFile() {
   const file = activeFile.value;
   if (!file) {
-    return;
+    return false;
   }
 
   if (!file.handle) {
-    showStatus("Read-only: no writable file handle.", "error");
-    return;
+    const error = new Error("Read-only: no writable file handle.");
+    error.code = "read-only";
+    throw error;
   }
 
-  try {
-    file.saving = true;
-    const hasPermission = await ensureWritePermission(file.handle);
-    if (!hasPermission) {
-      showStatus("Save permission denied.", "error");
-      return;
-    }
-
-    const writable = await file.handle.createWritable();
-    await writable.write(file.draftContent);
-    await writable.close();
-
-    const savedFile = await file.handle.getFile();
-    file.content = file.draftContent;
-    file.size = savedFile.size;
-    file.lastModified = savedFile.lastModified;
-    file.dirty = false;
-    refreshPreview(file);
-    showStatus("Saved to original file.");
-  } catch (error) {
-    showStatus("Could not save to the original file.", "error");
-    console.error(error);
-  } finally {
-    file.saving = false;
-  }
+  const savedFile = await localFileStorageAdapter.save({
+    handle: file.handle,
+    content: file.draftContent,
+  });
+  file.content = file.draftContent;
+  file.size = savedFile.size;
+  file.lastModified = savedFile.lastModified;
+  file.dirty = false;
+  refreshPreview(file);
+  return savedFile;
 }
 
-async function ensureWritePermission(handle) {
-  const options = { mode: "readwrite" };
-  if (handle.queryPermission) {
-    const permission = await handle.queryPermission(options);
-    if (permission === "granted") {
-      return true;
-    }
+function handleActiveFileSaveError(error) {
+  if (error?.code === "permission-denied") {
+    showStatus("Save permission denied.", "error");
+  } else if (error?.code === "read-only") {
+    showStatus(error.message, "error");
+  } else {
+    showStatus("Could not save to the original file.", "error");
   }
-
-  if (handle.requestPermission) {
-    return (await handle.requestPermission(options)) === "granted";
-  }
-
-  return true;
+  console.error(error);
 }
 
 function confirmDiscardUnsavedChanges() {
@@ -726,28 +678,29 @@ async function consumeExternalLaunch(launch) {
     return;
   }
 
-  showStatus(launch.message || "Could not open the file.", launch.tone || "error");
+  showStatus(
+    launch.message || "Could not open the file.",
+    launch.tone || "error",
+  );
 }
 
-async function copyActiveFile() {
+function getActiveFileCopyPayload() {
   if (!activeFile.value) {
-    return;
+    return null;
   }
 
   const file = activeFile.value;
   const isMarkdown = file.extension === "md" || file.type === "text/markdown";
   const content = file.draftContent ?? file.content;
-  if (isMarkdown) {
-    await writeMarkdownToClipboard(content);
-  } else {
-    await writePlainTextToClipboard(content);
-  }
+  return { type: isMarkdown ? "markdown" : "text", content };
+}
 
-  copied.value = true;
-  showStatus("Copied raw source to clipboard.");
-  window.setTimeout(() => {
-    copied.value = false;
-  }, 1400);
+function copyActiveFile() {
+  return documentSession.copy("source");
+}
+
+function documentKeydownHandler(event) {
+  documentSession.keydownHandler(event);
 }
 
 function formatBytes(bytes = 0) {
@@ -918,15 +871,18 @@ function showStatus(message, tone = "info") {
   text-transform: uppercase;
 }
 
-.flatnotes-open-file :deep(.toastui-editor-contents:not(.flatnotes-html-contents) h1) {
+.flatnotes-open-file
+  :deep(.toastui-editor-contents:not(.flatnotes-html-contents) h1) {
   font-size: 1.42rem;
 }
 
-.flatnotes-open-file :deep(.toastui-editor-contents:not(.flatnotes-html-contents) h2) {
+.flatnotes-open-file
+  :deep(.toastui-editor-contents:not(.flatnotes-html-contents) h2) {
   font-size: 1.22rem;
 }
 
-.flatnotes-open-file :deep(.toastui-editor-contents:not(.flatnotes-html-contents) h3) {
+.flatnotes-open-file
+  :deep(.toastui-editor-contents:not(.flatnotes-html-contents) h3) {
   font-size: 1.08rem;
 }
 </style>

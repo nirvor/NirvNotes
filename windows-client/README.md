@@ -48,3 +48,15 @@ but does not fight Windows UserChoice protection.
 - Opens `.md`, `.txt`, `.cfg`, and `.ini` from Windows or the native menu.
 - Saves edited external files back to their original path when writable.
 - Does not import external files into the VPS note folder.
+
+## Updates
+
+An installed release checks the NirvNotes server for a newer Windows package.
+When one is available, `Update NirvNotes` appears in the normal app menu. The
+client downloads the ZIP, verifies its SHA-256 hash and size, backs up the
+current installation, replaces it, and restarts. A failed replacement is rolled
+back automatically.
+
+The first updater-capable release still needs one normal installer run. Later
+releases can use the in-app update action. The server reads the update manifest
+and package from `NIRVNOTES_WINDOWS_UPDATE_DIR`.

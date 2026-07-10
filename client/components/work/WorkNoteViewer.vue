@@ -1,7 +1,6 @@
 <template>
   <section class="flatnotes-work-viewer">
     <ToastViewer
-      :key="markdown"
       :initialValue="markdown"
       :enhance-note-lead="false"
       :note-title="noteTitle"
@@ -34,5 +33,4 @@ const markdown = computed(() => extractWorkMarkdown(props.initialValue || ""));
   min-width: 0;
   max-width: 100%;
 }
-
 </style>

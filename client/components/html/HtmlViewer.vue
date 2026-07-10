@@ -11,6 +11,8 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 
 let renderEnhancementsPromise = null;
+const renderedHtmlCache = new Map();
+const renderedHtmlCacheLimit = 8;
 
 const props = defineProps({
   initialValue: String,
@@ -22,9 +24,23 @@ const props = defineProps({
 const viewerElement = ref();
 let enhancementRun = 0;
 
-const html = computed(() =>
-  sanitizeHtml(extractRenderableHtml(props.initialValue || "")),
-);
+const html = computed(() => cachedRenderableHtml(props.initialValue || ""));
+
+function cachedRenderableHtml(value) {
+  if (renderedHtmlCache.has(value)) {
+    const cached = renderedHtmlCache.get(value);
+    renderedHtmlCache.delete(value);
+    renderedHtmlCache.set(value, cached);
+    return cached;
+  }
+
+  const rendered = sanitizeHtml(extractRenderableHtml(value));
+  renderedHtmlCache.set(value, rendered);
+  if (renderedHtmlCache.size > renderedHtmlCacheLimit) {
+    renderedHtmlCache.delete(renderedHtmlCache.keys().next().value);
+  }
+  return rendered;
+}
 
 function loadRenderEnhancements() {
   if (!renderEnhancementsPromise) {

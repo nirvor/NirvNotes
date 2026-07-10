@@ -1,8 +1,10 @@
+import json
 import re
+from pathlib import Path
 from typing import List, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import api_messages
@@ -73,6 +75,61 @@ def root(title: str = ""):
     with open("client/dist/index.html", "r", encoding="utf-8") as f:
         html = f.read()
     return HTMLResponse(content=html)
+
+
+# endregion
+
+
+# region Windows client updates
+def load_windows_update_manifest():
+    if not global_config.windows_update_dir:
+        raise HTTPException(404, "Windows client updates are not configured.")
+
+    update_root = Path(global_config.windows_update_dir).resolve()
+    manifest_path = update_root / "NirvNotes-update.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        raise HTTPException(404, "No Windows client update is available.")
+
+    filename = Path(str(manifest.get("file", ""))).name
+    package_path = (update_root / filename).resolve()
+    if (
+        not filename
+        or update_root not in package_path.parents
+        or not package_path.is_file()
+    ):
+        raise HTTPException(404, "The Windows client package is unavailable.")
+
+    required_fields = ("version", "commit", "sha256", "size")
+    if any(not manifest.get(field) for field in required_fields):
+        raise HTTPException(500, "The Windows client manifest is incomplete.")
+
+    return manifest, package_path
+
+
+@router.get("/api/windows-client-update", include_in_schema=False)
+def get_windows_client_update():
+    manifest, _ = load_windows_update_manifest()
+    response = dict(manifest)
+    response["downloadUrl"] = (
+        f"{global_config.path_prefix}/api/windows-client-update/download"
+    )
+    return JSONResponse(
+        content=response,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/api/windows-client-update/download", include_in_schema=False)
+def download_windows_client_update():
+    manifest, package_path = load_windows_update_manifest()
+    return FileResponse(
+        package_path,
+        media_type="application/zip",
+        filename=manifest["file"],
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 # endregion
