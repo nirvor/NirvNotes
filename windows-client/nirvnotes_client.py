@@ -1586,10 +1586,14 @@ def dispatch_native_launch_consumption(window: webview.Window, fallback_url: str
 }})()
 """.strip()
     try:
-        window.run_js(script)
+        window.evaluate_js(script)
+        logging.info("native launch consumption dispatched to active window")
         return True
     except Exception:
-        logging.debug("could not dispatch native launch consumption", exc_info=True)
+        logging.warning(
+            "could not dispatch native launch consumption; reloading handoff route",
+            exc_info=True,
+        )
         return False
 
 

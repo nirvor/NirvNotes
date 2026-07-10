@@ -90,11 +90,9 @@ async function restoreNativeFileSession() {
 
 async function restoreNativeHostSession() {
   const routeSession = loadDesktopRouteSession();
-  if (!routeSession || routeSession.path.startsWith("/open-file")) {
-    const restoredFiles = await restoreNativeFileSession();
-    if (restoredFiles) {
-      return true;
-    }
+  const restoredFiles = await restoreNativeFileSession();
+  if (restoredFiles) {
+    return true;
   }
   if (
     routeSession?.path &&
