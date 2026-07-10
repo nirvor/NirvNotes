@@ -138,11 +138,13 @@ class NirvNotesApi:
         file_store: NativeFileStore,
         launch_paths: list[str],
         update_base_url: str,
+        source_url: str,
     ) -> None:
         self._file_store = file_store
         self._pending_launch_files = file_store.payloads_for_paths(launch_paths)
         self._window: webview.Window | None = None
         self._update_base_url = update_base_url.rstrip("/")
+        self._source_url = source_url.rstrip("/")
         self._update_status: dict[str, Any] | None = None
         self._update_checked_at = 0.0
         self._update_lock = threading.Lock()
@@ -165,6 +167,39 @@ class NirvNotesApi:
 
     def save_native_file(self, file_id: str, content: str) -> dict[str, Any]:
         return self._file_store.save(file_id, content)
+
+    def open_new_window(self, route: str = "/") -> dict[str, Any]:
+        normalized_route = normalize_app_route(route)
+        command = current_client_command() + [
+            "--url",
+            self._source_url,
+            "--route",
+            normalized_route,
+            "--proxy-port",
+            "0",
+        ]
+        creation_flags = 0
+        if sys.platform == "win32":
+            creation_flags = (
+                subprocess.CREATE_NEW_PROCESS_GROUP
+                | subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NO_WINDOW
+            )
+
+        try:
+            subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                creationflags=creation_flags,
+            )
+            logging.info("opened new NirvNotes window route=%s", normalized_route)
+            return {"started": True, "route": normalized_route}
+        except OSError as exc:
+            logging.exception("could not open a new NirvNotes window")
+            return {"started": False, "error": str(exc)}
 
     def has_openable_external_paths(self, paths: list[str]) -> bool:
         return self._file_store.has_openable_path(paths)
@@ -346,6 +381,24 @@ def resource_path(relative_path: str) -> str:
         if candidate.exists():
             return str(candidate)
     return str(candidates[0])
+
+
+def current_client_command() -> list[str]:
+    if getattr(sys, "frozen", False):
+        return [str(Path(sys.executable).resolve())]
+    return [str(Path(sys.executable).resolve()), str(Path(__file__).resolve())]
+
+
+def normalize_app_route(value: Any) -> str:
+    route = str(value or "/").strip()
+    parsed = parse.urlsplit(route)
+    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
+        return "/"
+
+    normalized = parsed.path or "/"
+    if parsed.query:
+        normalized = f"{normalized}?{parsed.query}"
+    return normalized
 
 
 def load_client_metadata() -> dict[str, str]:
@@ -698,7 +751,6 @@ class LocalProxyServer(ThreadingHTTPServer):
     allow_reuse_address = False
 
     def __init__(self, server_address: tuple[str, int], upstream_base_url: str) -> None:
-        super().__init__(server_address, LocalProxyHandler)
         self.upstream_base_url = upstream_base_url.rstrip("/")
         self.upstream_pool = urllib3.PoolManager(
             num_pools=2,
@@ -707,9 +759,12 @@ class LocalProxyServer(ThreadingHTTPServer):
             retries=False,
             timeout=urllib3.Timeout(connect=5, read=30),
         )
+        super().__init__(server_address, LocalProxyHandler)
 
     def server_close(self) -> None:
-        self.upstream_pool.clear()
+        upstream_pool = getattr(self, "upstream_pool", None)
+        if upstream_pool is not None:
+            upstream_pool.clear()
         super().server_close()
 
 
@@ -820,14 +875,14 @@ def start_local_proxy(
     upstream_base_url: str,
     preferred_port: int = DEFAULT_PROXY_PORT,
 ) -> tuple[str, LocalProxyServer]:
-    port = preferred_port if preferred_port > 0 else find_free_port()
+    port = preferred_port if preferred_port > 0 else 0
     try:
         server = LocalProxyServer(("127.0.0.1", port), upstream_base_url)
     except OSError:
         if preferred_port <= 0:
             raise
-        port = find_free_port()
-        server = LocalProxyServer(("127.0.0.1", port), upstream_base_url)
+        server = LocalProxyServer(("127.0.0.1", 0), upstream_base_url)
+    port = int(server.server_address[1])
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     logging.info("local proxy started port=%s upstream=%s", port, upstream_base_url)
@@ -1086,6 +1141,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-width", type=int, default=360)
     parser.add_argument("--min-height", type=int, default=520)
     parser.add_argument(
+        "--route",
+        default="",
+        help="Initial NirvNotes route for a newly opened window.",
+    )
+    parser.add_argument(
         "--proxy-port",
         type=int,
         default=DEFAULT_PROXY_PORT,
@@ -1105,9 +1165,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_url(base_url: str, files: list[str]) -> str:
+def build_url(base_url: str, files: list[str], route: str = "") -> str:
     base_url = base_url.rstrip("/") or DEFAULT_URL
-    return f"{base_url}/open-file?nativeLaunch=1" if files else base_url
+    if files:
+        return f"{base_url}/open-file?nativeLaunch=1"
+    return f"{base_url}{normalize_app_route(route)}" if route else base_url
 
 
 def startup_html() -> str:
@@ -1266,8 +1328,8 @@ def main() -> None:
     if should_proxy_url(base_url, args.direct):
         browser_base_url, proxy_server = start_local_proxy(base_url, args.proxy_port)
 
-    api = NirvNotesApi(file_store, args.files, browser_base_url)
-    start_url = build_url(browser_base_url, args.files)
+    api = NirvNotesApi(file_store, args.files, browser_base_url, base_url)
+    start_url = build_url(browser_base_url, args.files, args.route)
     logging.info("start url prepared %s", start_url)
     window_ref: dict[str, webview.Window] = {}
     menu = build_menu(window_ref, browser_base_url) if args.native_menu else []

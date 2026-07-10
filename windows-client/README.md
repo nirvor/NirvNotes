@@ -48,6 +48,8 @@ but does not fight Windows UserChoice protection.
 - Opens `.md`, `.txt`, `.cfg`, and `.ini` from Windows or the native menu.
 - Saves edited external files back to their original path when writable.
 - Does not import external files into the VPS note folder.
+- Supports multiple independent windows. A second app launch gets its own local
+  proxy port, and `New Window` opens the current NirvNotes route natively.
 
 ## Updates
 

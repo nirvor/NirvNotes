@@ -1,5 +1,5 @@
 <template>
-  <nav class="mb-2 flex justify-end align-top md:mb-3">
+  <nav class="flatnotes-navbar mb-2 flex justify-end align-top md:mb-3">
     <div
       class="flatnotes-navbar-actions flex grow flex-wrap items-center justify-end gap-1"
     >
@@ -240,11 +240,32 @@ function toggleNoteDrawer() {
   window.dispatchEvent(new CustomEvent("flatnotes:toggle-note-drawer"));
 }
 
-function openNewWindow() {
+async function openNewWindow() {
   const targetRoute =
     router.currentRoute.value.name === "openFile"
       ? router.resolve({ name: "home" })
       : router.resolve(router.currentRoute.value.fullPath || { name: "home" });
+
+  if (window.pywebview?.api?.open_new_window) {
+    let result;
+    try {
+      result = await window.pywebview.api.open_new_window(targetRoute.href);
+    } catch (error) {
+      console.error(error);
+      result = { started: false };
+    }
+    if (!result?.started) {
+      toast.add(
+        getToastOptions(
+          result?.error || "Could not open a new NirvNotes window.",
+          "New Window Failed",
+          "error",
+        ),
+      );
+    }
+    return;
+  }
+
   window.open(targetRoute.href, "_blank", "noopener");
 }
 
@@ -256,6 +277,22 @@ function showLogOutButton() {
 </script>
 
 <style scoped>
+.flatnotes-navbar {
+  position: sticky;
+  top: 0;
+  z-index: 35;
+  margin-inline: -0.45rem;
+  padding-inline: 0.45rem;
+  background-color: rgb(var(--theme-background));
+  isolation: isolate;
+}
+
+@media print {
+  .flatnotes-navbar {
+    position: static;
+  }
+}
+
 @media (max-width: 560px) {
   .flatnotes-navbar-actions {
     gap: 0.12rem;

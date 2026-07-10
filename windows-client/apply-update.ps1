@@ -11,6 +11,7 @@ $UpdateRoot = Join-Path $env:LOCALAPPDATA "NirvNotes\updates"
 $LogPath = Join-Path $UpdateRoot "apply-update.log"
 $StageDir = Join-Path $UpdateRoot "stage"
 $BackupDir = Join-Path $UpdateRoot "previous-app"
+$InstalledExe = Join-Path $InstallDir "NirvNotes.exe"
 
 New-Item -ItemType Directory -Path $UpdateRoot -Force | Out-Null
 
@@ -52,6 +53,21 @@ try {
   Write-UpdateLog "Waiting for NirvNotes process $ParentProcessId."
   Wait-Process -Id $ParentProcessId -ErrorAction SilentlyContinue
 
+  $OtherInstances = @(
+    Get-CimInstance Win32_Process -Filter "Name = 'NirvNotes.exe'" -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.ExecutablePath -and
+        [System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq [System.IO.Path]::GetFullPath($InstalledExe)
+      }
+  )
+  if ($OtherInstances.Count -gt 0) {
+    Write-UpdateLog "Closing $($OtherInstances.Count) additional NirvNotes window(s)."
+    foreach ($Process in $OtherInstances) {
+      Stop-Process -Id $Process.ProcessId -Force -ErrorAction SilentlyContinue
+      Wait-Process -Id $Process.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
+    }
+  }
+
   $ActualHash = (Get-FileHash -LiteralPath $PackagePath -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($ActualHash -ne $ExpectedSha256.ToLowerInvariant()) {
     throw "Downloaded package hash does not match the update manifest."
@@ -69,7 +85,6 @@ try {
     throw "The update package does not contain app\NirvNotes.exe."
   }
 
-  $InstalledExe = Join-Path $InstallDir "NirvNotes.exe"
   $InstalledInternal = Join-Path $InstallDir "_internal"
   if (Test-Path -LiteralPath $InstalledExe) {
     Copy-Item -LiteralPath $InstalledExe -Destination $BackupDir -Force

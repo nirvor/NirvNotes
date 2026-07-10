@@ -155,8 +155,7 @@ loadTheme();
 
 <style scoped>
 .flatnotes-app-shell {
-  overflow-x: clip;
-  overflow-y: visible;
+  overflow: visible;
 }
 
 .flatnotes-app-shell-note {
@@ -179,12 +178,5 @@ loadTheme();
 .flatnotes-app-shell-note.flatnotes-app-shell-dashboard {
   width: min(100%, calc(100vw - 1.5rem));
   max-width: none;
-  overflow-x: clip;
-}
-
-@supports not (overflow: clip) {
-  .flatnotes-app-shell {
-    overflow-x: visible;
-  }
 }
 </style>
