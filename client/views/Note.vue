@@ -590,6 +590,7 @@ function noteSaveFailure(error) {
 }
 
 function noteSaveSuccess() {
+  clearContentChangedTimeout();
   toast.add(getToastOptions("Note saved successfully ✓", "Success", "success"));
 }
 
@@ -603,6 +604,7 @@ function closeHandler() {
 }
 
 function closeNote() {
+  clearContentChangedTimeout();
   documentSession.clearDraft();
   documentSession.setDirty(false);
   documentSession.leaveEdit();
