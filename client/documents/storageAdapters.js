@@ -12,9 +12,13 @@ export function createVpsNoteStorageAdapter({ create, update }) {
 
 export function createLocalFileStorageAdapter() {
   return {
-    async save({ handle, content }) {
+    async save({ handle, content, force = false }) {
       if (!handle) {
         throw new Error("This file does not have a writable handle.");
+      }
+
+      if (handle.saveContent) {
+        return handle.saveContent(content, { force });
       }
 
       const permission = await ensureWritePermission(handle);

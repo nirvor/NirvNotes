@@ -27,15 +27,17 @@ new installer package manually.
 
 ## Cloud/backend behavior
 
-The desktop app uses the live RackNerd NirvNotes endpoint by default:
+The desktop shell and local editor are bundled with the app. VPS notes, search,
+attachments, and media use the live RackNerd endpoint:
 
 ```text
 https://racknerd-31fcf0d.tail38b5b3.ts.net:8092
 ```
 
-So on a fresh Win11 Mini-PC or laptop, make sure Tailscale is installed and
-logged in. The installer performs a small Tailscale/VPS check but does not fail
-hard when the machine is offline.
+On a fresh Win11 Mini-PC or laptop, install and log in to Tailscale for cloud
+notes. The installer performs a small connectivity check but does not fail when
+the machine is offline. Local `.md`, `.txt`, `.cfg`, and `.ini` files remain
+available without the VPS.
 
 ## Command-line install
 

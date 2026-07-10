@@ -3,6 +3,11 @@ import * as constants from "./constants.js";
 import { Note, SearchResult } from "./classes.js";
 
 import axios from "axios";
+import {
+  isCloudNetworkError,
+  markCloudOffline,
+  markCloudOnline,
+} from "./desktopShell.js";
 import { getStoredToken } from "./tokenStorage.js";
 import { getToastOptions } from "./helpers.js";
 import router from "./router.js";
@@ -29,6 +34,21 @@ api.interceptors.request.use(
     return config;
   },
   function (error) {
+    return Promise.reject(error);
+  },
+);
+
+api.interceptors.response.use(
+  function (response) {
+    markCloudOnline();
+    return response;
+  },
+  function (error) {
+    if (isCloudNetworkError(error)) {
+      markCloudOffline();
+    } else if (error?.response) {
+      markCloudOnline();
+    }
     return Promise.reject(error);
   },
 );

@@ -8,11 +8,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import logging
 from logging.handlers import RotatingFileHandler
+import mimetypes
 import os
 import socket
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from datetime import datetime, timezone
@@ -23,6 +25,8 @@ from urllib import error, parse, request
 import webview
 from webview.menu import Menu, MenuAction, MenuSeparator
 import urllib3
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 
 DEFAULT_URL = "https://racknerd-31fcf0d.tail38b5b3.ts.net:8092"
@@ -59,12 +63,29 @@ HOP_BY_HOP_HEADERS = {
     "transfer-encoding",
     "upgrade",
 }
+UPSTREAM_PATH_PREFIXES = (
+    "/api",
+    "/attachments",
+    "/note-assets",
+    "/docs",
+)
+UPSTREAM_EXACT_PATHS = {"/health", "/openapi.json"}
+DESKTOP_SHELL_MARKER = """
+<script>
+  window.__NIRVNOTES_DESKTOP_SHELL__ = true;
+</script>
+""".strip()
 
 
 class NativeFileStore:
     def __init__(self) -> None:
         self._paths: dict[str, Path] = {}
-        self._encodings: dict[str, str] = {}
+        self._metadata: dict[str, dict[str, Any]] = {}
+        self._pending_changes: set[str] = set()
+        self._watched_directories: set[str] = set()
+        self._lock = threading.RLock()
+        self._observer: Observer | None = None
+        self._event_handler = NativeFileEventHandler(self._mark_path_changed)
 
     def payloads_for_paths(self, paths: list[str]) -> list[dict[str, Any]]:
         payloads = []
@@ -84,52 +105,168 @@ class NativeFileStore:
                 return True
         return False
 
-    def save(self, file_id: str, content: str) -> dict[str, Any]:
-        path = self._paths.get(file_id)
-        if not path or not self._is_allowed(path):
+    def save(
+        self,
+        file_id: str,
+        content: str,
+        expected_version: str = "",
+        force: bool = False,
+    ) -> dict[str, Any]:
+        with self._lock:
+            path = self._paths.get(file_id)
+            metadata = dict(self._metadata.get(file_id, {}))
+        if not path or path.suffix.lower() not in ALLOWED_EXTENSIONS:
             raise ValueError("File is not writable from this NirvNotes client.")
 
-        encoding = self._encodings.get(file_id, "utf-8")
+        current_payload = self._payload_for_path(path)
+        if not current_payload:
+            return {
+                "ok": False,
+                "deleted": True,
+                "id": file_id,
+                "path": str(path),
+                "name": path.name,
+            }
+        current_version = str(current_payload.get("version", ""))
+        if expected_version and expected_version != current_version and not force:
+            return {"ok": False, "conflict": True, "external": current_payload}
+
+        encoding = str(metadata.get("encoding", current_payload["encodingKey"]))
+        line_ending = str(metadata.get("lineEnding", current_payload["lineEnding"]))
+        bom = bool(metadata.get("bom", current_payload["bom"]))
+        normalized_content = normalize_newlines(content)
+        disk_content = normalized_content.replace("\n", line_ending_value(line_ending))
         try:
-            path.write_text(content, encoding=encoding, newline="")
+            raw = disk_content.encode(encoding)
         except UnicodeEncodeError:
             encoding = "utf-8"
-            path.write_text(content, encoding=encoding, newline="")
-            self._encodings[file_id] = encoding
+            bom = False
+            raw = disk_content.encode(encoding)
+        if bom and encoding == "utf-8":
+            raw = b"\xef\xbb\xbf" + raw
 
-        stat = path.stat()
-        return {
-            "id": file_id,
-            "name": path.name,
-            "size": stat.st_size,
-            "lastModified": int(stat.st_mtime * 1000),
-        }
+        atomic_write(path, raw)
+        saved_payload = self._payload_for_path(path)
+        if not saved_payload:
+            raise OSError("Saved file could not be read back.")
+        with self._lock:
+            self._pending_changes.discard(file_id)
+        return {"ok": True, **saved_payload}
+
+    def poll_changes(self) -> list[dict[str, Any]]:
+        with self._lock:
+            pending = list(self._pending_changes)
+            self._pending_changes.clear()
+
+        changes: list[dict[str, Any]] = []
+        for file_id in pending:
+            with self._lock:
+                path = self._paths.get(file_id)
+                known_version = str(self._metadata.get(file_id, {}).get("version", ""))
+            if not path:
+                continue
+            if not path.is_file():
+                changes.append(
+                    {
+                        "id": file_id,
+                        "path": str(path),
+                        "name": path.name,
+                        "deleted": True,
+                    }
+                )
+                continue
+
+            payload = self._payload_for_path(path)
+            if payload and payload.get("version") != known_version:
+                changes.append({"deleted": False, **payload})
+        return changes
+
+    def close(self) -> None:
+        with self._lock:
+            observer = self._observer
+            self._observer = None
+        if observer:
+            observer.stop()
+            observer.join(timeout=2)
 
     def _payload_for_path(self, path: Path) -> dict[str, Any] | None:
         try:
-            content, encoding = read_text(path)
+            raw = path.read_bytes()
+            content, encoding, bom = decode_text(raw)
             stat = path.stat()
         except OSError:
             return None
 
-        file_id = str(path.resolve())
-        self._paths[file_id] = path.resolve()
-        self._encodings[file_id] = encoding
+        resolved_path = path.resolve()
+        file_id = str(resolved_path)
+        line_ending = detect_line_ending(content)
+        normalized_content = normalize_newlines(content)
+        version = hashlib.sha256(raw).hexdigest()
+        with self._lock:
+            self._paths[file_id] = resolved_path
+            self._metadata[file_id] = {
+                "encoding": encoding,
+                "lineEnding": line_ending,
+                "bom": bom,
+                "version": version,
+            }
+        self._watch_directory(resolved_path.parent)
         extension = path.suffix.lower()
         return {
             "id": file_id,
             "name": path.name,
-            "path": str(path),
+            "path": str(resolved_path),
             "extension": extension.removeprefix("."),
             "type": TEXT_TYPES.get(extension, "text/plain"),
             "size": stat.st_size,
             "lastModified": int(stat.st_mtime * 1000),
-            "content": content,
+            "content": normalized_content,
             "writable": os.access(path, os.W_OK),
+            "encoding": display_encoding(encoding, bom),
+            "encodingKey": encoding,
+            "lineEnding": line_ending,
+            "bom": bom,
+            "version": version,
         }
 
     def _is_allowed(self, path: Path) -> bool:
         return path.is_file() and path.suffix.lower() in ALLOWED_EXTENSIONS
+
+    def _watch_directory(self, directory: Path) -> None:
+        directory_key = normalized_path_key(directory)
+        with self._lock:
+            if directory_key in self._watched_directories:
+                return
+            if self._observer is None:
+                self._observer = Observer()
+                self._observer.start()
+            self._observer.schedule(
+                self._event_handler,
+                str(directory),
+                recursive=False,
+            )
+            self._watched_directories.add(directory_key)
+
+    def _mark_path_changed(self, raw_path: str) -> None:
+        changed_key = normalized_path_key(Path(raw_path))
+        with self._lock:
+            for file_id, path in self._paths.items():
+                if normalized_path_key(path) == changed_key:
+                    self._pending_changes.add(file_id)
+
+
+class NativeFileEventHandler(FileSystemEventHandler):
+    def __init__(self, callback: Any) -> None:
+        super().__init__()
+        self._callback = callback
+
+    def on_any_event(self, event: Any) -> None:
+        if event.is_directory:
+            return
+        self._callback(event.src_path)
+        destination = getattr(event, "dest_path", "")
+        if destination:
+            self._callback(destination)
 
 
 class NirvNotesApi:
@@ -165,8 +302,29 @@ class NirvNotesApi:
         )
         return self._file_store.payloads_for_paths(list(paths or []))
 
-    def save_native_file(self, file_id: str, content: str) -> dict[str, Any]:
-        return self._file_store.save(file_id, content)
+    def save_native_file(
+        self,
+        file_id: str,
+        content: str,
+        expected_version: str = "",
+        force: bool = False,
+    ) -> dict[str, Any]:
+        return self._file_store.save(file_id, content, expected_version, force)
+
+    def restore_native_files(self, paths: list[str]) -> list[dict[str, Any]]:
+        return self._file_store.payloads_for_paths(paths)
+
+    def poll_native_file_changes(self) -> list[dict[str, Any]]:
+        return self._file_store.poll_changes()
+
+    def report_client_ready(self, metrics: dict[str, Any] | None = None) -> None:
+        metrics = metrics or {}
+        logging.info(
+            "client ready phase=%s route=%s browser_ms=%s",
+            metrics.get("phase", "shell"),
+            metrics.get("route", ""),
+            metrics.get("browserMs", ""),
+        )
 
     def open_new_window(self, route: str = "/") -> dict[str, Any]:
         normalized_route = normalize_app_route(route)
@@ -355,19 +513,71 @@ class NirvNotesApi:
             self._window.destroy()
 
 
-def read_text(path: Path) -> tuple[str, str]:
-    raw = path.read_bytes()
+def decode_text(raw: bytes) -> tuple[str, str, bool]:
+    bom = raw.startswith(b"\xef\xbb\xbf")
     encodings = (
-        ("utf-8-sig", "utf-8")
-        if raw.startswith(b"\xef\xbb\xbf")
+        ("utf-8-sig",)
+        if bom
         else ("utf-8", "cp1252", "latin-1")
     )
     for encoding in encodings:
         try:
-            return raw.decode(encoding), encoding
+            content = raw.decode(encoding)
+            return content, "utf-8" if encoding == "utf-8-sig" else encoding, bom
         except UnicodeDecodeError:
             continue
-    return raw.decode("utf-8", errors="replace"), "utf-8"
+    return raw.decode("utf-8", errors="replace"), "utf-8", False
+
+
+def normalize_newlines(content: str) -> str:
+    return str(content).replace("\r\n", "\n").replace("\r", "\n")
+
+
+def detect_line_ending(content: str) -> str:
+    crlf_count = content.count("\r\n")
+    lf_count = content.count("\n") - crlf_count
+    cr_count = content.count("\r") - crlf_count
+    if crlf_count >= max(lf_count, cr_count) and crlf_count:
+        return "CRLF"
+    if cr_count > lf_count:
+        return "CR"
+    return "LF"
+
+
+def line_ending_value(line_ending: str) -> str:
+    return {"CRLF": "\r\n", "CR": "\r"}.get(line_ending, "\n")
+
+
+def display_encoding(encoding: str, bom: bool) -> str:
+    if encoding == "utf-8":
+        return "UTF-8 BOM" if bom else "UTF-8"
+    if encoding == "cp1252":
+        return "Windows-1252"
+    return encoding.upper()
+
+
+def normalized_path_key(path: Path) -> str:
+    return os.path.normcase(os.path.abspath(str(path)))
+
+
+def atomic_write(path: Path, raw: bytes) -> None:
+    mode = path.stat().st_mode
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary_path, mode)
+        os.replace(temporary_path, path)
+    finally:
+        with contextlib.suppress(OSError):
+            temporary_path.unlink()
 
 
 def resource_path(relative_path: str) -> str:
@@ -750,16 +960,36 @@ class LocalProxyServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
 
-    def __init__(self, server_address: tuple[str, int], upstream_base_url: str) -> None:
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        upstream_base_url: str,
+        static_root: Path | None = None,
+    ) -> None:
         self.upstream_base_url = upstream_base_url.rstrip("/")
+        self.static_root = static_root.resolve() if static_root else None
+        self._upstream_state_lock = threading.Lock()
+        self._upstream_offline_until = 0.0
         self.upstream_pool = urllib3.PoolManager(
             num_pools=2,
             maxsize=8,
             block=True,
             retries=False,
-            timeout=urllib3.Timeout(connect=5, read=30),
+            timeout=urllib3.Timeout(connect=1.25, read=30),
         )
         super().__init__(server_address, LocalProxyHandler)
+
+    def upstream_is_temporarily_offline(self) -> bool:
+        with self._upstream_state_lock:
+            return time.monotonic() < self._upstream_offline_until
+
+    def mark_upstream_online(self) -> None:
+        with self._upstream_state_lock:
+            self._upstream_offline_until = 0.0
+
+    def mark_upstream_offline(self) -> None:
+        with self._upstream_state_lock:
+            self._upstream_offline_until = time.monotonic() + 2.0
 
     def server_close(self) -> None:
         upstream_pool = getattr(self, "upstream_pool", None)
@@ -772,7 +1002,10 @@ class LocalProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def do_GET(self) -> None:
-        self._proxy()
+        self._dispatch()
+
+    def do_HEAD(self) -> None:
+        self._dispatch()
 
     def do_POST(self) -> None:
         self._proxy()
@@ -792,7 +1025,70 @@ class LocalProxyHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         return
 
+    def _dispatch(self) -> None:
+        path = parse.urlsplit(self.path).path or "/"
+        if (
+            self.command in {"GET", "HEAD"}
+            and self.server.static_root is not None  # type: ignore[attr-defined]
+            and not should_proxy_path(path)
+        ):
+            self._serve_static(path)
+            return
+        self._proxy()
+
+    def _serve_static(self, request_path: str) -> None:
+        static_root = self.server.static_root  # type: ignore[attr-defined]
+        relative_path = parse.unquote(request_path).lstrip("/")
+        candidate = (static_root / relative_path).resolve() if relative_path else None
+        if candidate and is_path_within(candidate, static_root) and candidate.is_file():
+            self._send_static_file(candidate, inject_shell=False)
+            return
+
+        if Path(relative_path).suffix:
+            self.send_error(404)
+            return
+
+        index_path = static_root / "index.html"
+        if not index_path.is_file():
+            self.send_error(503)
+            return
+        self._send_static_file(index_path, inject_shell=True)
+
+    def _send_static_file(self, path: Path, inject_shell: bool) -> None:
+        try:
+            payload = path.read_bytes()
+        except OSError:
+            self.send_error(404)
+            return
+
+        if inject_shell:
+            text = payload.decode("utf-8")
+            marker = f"{DESKTOP_SHELL_MARKER}\n"
+            text = text.replace("<head>", f"<head>\n{marker}", 1)
+            payload = text.encode("utf-8")
+
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        if path.suffix == ".webmanifest":
+            content_type = "application/manifest+json"
+        cache_control = (
+            "public, max-age=31536000, immutable"
+            if path.parent.name == "assets"
+            else "no-cache"
+        )
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", cache_control)
+        self.send_header("X-NirvNotes-Shell", "desktop")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(payload)
+
     def _proxy(self) -> None:
+        if self.server.upstream_is_temporarily_offline():  # type: ignore[attr-defined]
+            self._send_upstream_offline("temporarily unavailable")
+            return
+
         upstream_base_url = self.server.upstream_base_url  # type: ignore[attr-defined]
         upstream_url = f"{upstream_base_url}{self.path}"
         content_length = int(self.headers.get("Content-Length", "0") or "0")
@@ -814,21 +1110,28 @@ class LocalProxyHandler(BaseHTTPRequestHandler):
                 decode_content=False,
                 redirect=False,
             )
+            self.server.mark_upstream_online()  # type: ignore[attr-defined]
             self._send_upstream_response(response.status, response.headers, response)
         except Exception as exc:
-            payload = f"NirvNotes local proxy could not reach upstream: {exc}".encode(
-                "utf-8",
-                errors="replace",
-            )
-            self.send_response(502)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(payload)))
-            self.send_header("Connection", "close")
-            self.end_headers()
-            self.wfile.write(payload)
+            self.server.mark_upstream_offline()  # type: ignore[attr-defined]
+            self._send_upstream_offline(str(exc))
         finally:
             if response is not None:
                 response.release_conn()
+
+    def _send_upstream_offline(self, reason: str) -> None:
+        payload = f"NirvNotes local proxy could not reach upstream: {reason}".encode(
+            "utf-8",
+            errors="replace",
+        )
+        self.send_response(502)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("X-NirvNotes-Upstream", "offline")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(payload)
 
     def _send_upstream_response(self, status: int, headers: Any, response: Any) -> None:
         content_length = headers.get("Content-Length")
@@ -864,6 +1167,27 @@ def find_free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def should_proxy_path(path: str) -> bool:
+    normalized = path.rstrip("/") or "/"
+    return normalized in UPSTREAM_EXACT_PATHS or any(
+        normalized == prefix or normalized.startswith(f"{prefix}/")
+        for prefix in UPSTREAM_PATH_PREFIXES
+    )
+
+
+def is_path_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def desktop_shell_root() -> Path | None:
+    root = Path(resource_path("client/dist"))
+    return root if (root / "index.html").is_file() else None
+
+
 def should_proxy_url(url: str, direct: bool) -> bool:
     if direct:
         return False
@@ -874,18 +1198,32 @@ def should_proxy_url(url: str, direct: bool) -> bool:
 def start_local_proxy(
     upstream_base_url: str,
     preferred_port: int = DEFAULT_PROXY_PORT,
+    static_root: Path | None = None,
 ) -> tuple[str, LocalProxyServer]:
     port = preferred_port if preferred_port > 0 else 0
     try:
-        server = LocalProxyServer(("127.0.0.1", port), upstream_base_url)
+        server = LocalProxyServer(
+            ("127.0.0.1", port),
+            upstream_base_url,
+            static_root=static_root,
+        )
     except OSError:
         if preferred_port <= 0:
             raise
-        server = LocalProxyServer(("127.0.0.1", 0), upstream_base_url)
+        server = LocalProxyServer(
+            ("127.0.0.1", 0),
+            upstream_base_url,
+            static_root=static_root,
+        )
     port = int(server.server_address[1])
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    logging.info("local proxy started port=%s upstream=%s", port, upstream_base_url)
+    logging.info(
+        "local proxy started port=%s upstream=%s shell=%s",
+        port,
+        upstream_base_url,
+        "local" if static_root else "upstream",
+    )
     return f"http://127.0.0.1:{port}", server
 
 
@@ -1219,7 +1557,6 @@ def startup_html() -> str:
 
 def load_start_url_after_gui(window: webview.Window, start_url: str) -> None:
     logging.info("webview gui started")
-    time.sleep(0.15)
     logging.info("loading start url %s", start_url)
     window.load_url(start_url)
 
@@ -1326,7 +1663,12 @@ def main() -> None:
     instance_registration_stop: threading.Event | None = None
     browser_base_url = base_url
     if should_proxy_url(base_url, args.direct):
-        browser_base_url, proxy_server = start_local_proxy(base_url, args.proxy_port)
+        shell_root = desktop_shell_root()
+        browser_base_url, proxy_server = start_local_proxy(
+            base_url,
+            args.proxy_port,
+            static_root=shell_root,
+        )
 
     api = NirvNotesApi(file_store, args.files, browser_base_url, base_url)
     start_url = build_url(browser_base_url, args.files, args.route)
@@ -1374,6 +1716,7 @@ def main() -> None:
         )
     finally:
         logging.info("process shutdown")
+        file_store.close()
         window_state_stop.set()
         if instance_registration_stop:
             instance_registration_stop.set()

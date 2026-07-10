@@ -226,7 +226,8 @@ export function useDocumentSession(options = {}) {
     startEditFromContent(event, { allowSelection: true });
   }
 
-  async function save({ close = false } = {}) {
+  async function save(saveOptions = {}) {
+    const { close = false } = saveOptions;
     if (saving.value || !options.saveDocument) {
       return false;
     }
@@ -234,7 +235,7 @@ export function useDocumentSession(options = {}) {
     const savedDraftKeys = [draftKey(), ...legacyDraftKeys()].filter(Boolean);
     saving.value = true;
     try {
-      const saved = await options.saveDocument({ close });
+      const saved = await options.saveDocument({ ...saveOptions, close });
       if (saved === false) {
         return false;
       }

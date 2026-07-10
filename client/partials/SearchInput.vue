@@ -74,6 +74,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
 import { apiErrorHandler, getSemanticIndex, getTags } from "../api.js";
+import { isCloudNetworkError } from "../desktopShell.js";
 import IconLabel from "../components/IconLabel.vue";
 import * as constants from "../constants.js";
 import {
@@ -285,7 +286,9 @@ async function showTagCloud() {
       rebuildTopTags();
     } catch (error) {
       topTags.value = [];
-      apiErrorHandler(error, toast);
+      if (!isCloudNetworkError(error)) {
+        apiErrorHandler(error, toast);
+      }
     }
     tagCloudLoaded = true;
   }
@@ -330,7 +333,9 @@ async function filterTagMatches(input) {
       tags = await getTags();
     } catch (error) {
       tags = [];
-      apiErrorHandler(error, toast);
+      if (!isCloudNetworkError(error)) {
+        apiErrorHandler(error, toast);
+      }
     }
     tags = tags.map((tag) => `#${tag}`);
   }

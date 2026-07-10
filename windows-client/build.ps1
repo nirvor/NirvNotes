@@ -13,6 +13,7 @@ $Entry = Join-Path $PSScriptRoot "nirvnotes_client.py"
 $Dist = Join-Path $PSScriptRoot "dist"
 $Build = Join-Path $PSScriptRoot "build"
 $UpdaterScript = Join-Path $PSScriptRoot "apply-update.ps1"
+$ClientDist = Join-Path $Root "client\dist"
 $MetadataDir = Join-Path $env:TEMP "NirvNotes-build-metadata-$PID"
 $VersionMetadata = Join-Path $MetadataDir "client-version.json"
 
@@ -46,7 +47,18 @@ Start-Sleep -Seconds 2
 if (!(Test-Path $Python)) {
   python -m venv $Venv
   & $Python -m pip install --upgrade pip
-  & $Python -m pip install -r (Join-Path $PSScriptRoot "requirements.txt")
+}
+
+& $Python -m pip install -r (Join-Path $PSScriptRoot "requirements.txt")
+
+Push-Location $Root
+try {
+  & npm run build
+} finally {
+  Pop-Location
+}
+if (!(Test-Path (Join-Path $ClientDist "index.html"))) {
+  throw "Frontend build finished but $ClientDist\index.html was not created."
 }
 
 if (Test-Path $Dist) {
@@ -68,6 +80,7 @@ try {
     --workpath $Build `
     --specpath $Build `
     --add-data "$Icon;client\assets" `
+    --add-data "$ClientDist;client\dist" `
     --add-data "$VersionMetadata;." `
     --add-data "$UpdaterScript;." `
     $Entry

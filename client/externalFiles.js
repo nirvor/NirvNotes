@@ -5,12 +5,14 @@ export const externalFileLaunch = shallowRef(null);
 export function publishExternalFileLaunch(
   files,
   message = "Opened from Windows.",
+  options = {},
 ) {
   externalFileLaunch.value = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     files,
     message,
     tone: "info",
+    ...options,
   };
 }
 
@@ -50,26 +52,72 @@ export async function filesFromLaunchParams(launchParams) {
 export function filesFromNativePayloads(payloads = []) {
   return payloads
     .filter((payload) => payload && typeof payload.content === "string")
-    .map((payload) => ({
-      file: new File([payload.content], payload.name || "external.txt", {
-        type: payload.type || "text/plain",
-        lastModified: payload.lastModified || Date.now(),
-      }),
-      handle: payload.writable ? nativeWritableHandle(payload) : null,
-    }));
+    .map((payload) => {
+      const handle = payload.writable ? nativeWritableHandle(payload) : null;
+      return {
+        file: nativePayloadFile(payload),
+        handle,
+        nativePayload: payload,
+      };
+    });
+}
+
+function nativePayloadFile(payload) {
+  return new File([payload.content || ""], payload.name || "external.txt", {
+    type: payload.type || "text/plain",
+    lastModified: payload.lastModified || Date.now(),
+  });
 }
 
 function nativeWritableHandle(payload) {
+  const state = { ...payload };
+
+  function applyPayload(nextPayload = {}) {
+    Object.assign(state, nextPayload);
+    Object.assign(payload, nextPayload);
+  }
+
   async function getFile() {
-    return new File([payload.content || ""], payload.name || "external.txt", {
-      type: payload.type || "text/plain",
-      lastModified: payload.lastModified || Date.now(),
-    });
+    return nativePayloadFile(state);
+  }
+
+  async function saveContent(content, { force = false } = {}) {
+    const savedPayload = await window.pywebview.api.save_native_file(
+      state.id,
+      String(content ?? ""),
+      state.version || "",
+      Boolean(force),
+    );
+    if (savedPayload?.conflict) {
+      const error = new Error("The file changed outside NirvNotes.");
+      error.code = "external-conflict";
+      error.external = savedPayload.external;
+      throw error;
+    }
+    if (savedPayload?.deleted) {
+      const error = new Error("The original file no longer exists.");
+      error.code = "external-deleted";
+      throw error;
+    }
+    if (!savedPayload?.ok) {
+      throw new Error("The native file could not be saved.");
+    }
+    applyPayload({ ...savedPayload, content: String(content ?? "") });
+    return getFile();
   }
 
   return {
-    id: payload.id,
-    name: payload.name,
+    id: state.id,
+    kind: "native",
+    path: state.path,
+    get name() {
+      return state.name;
+    },
+    get metadata() {
+      return { ...state };
+    },
+    applyPayload,
+    saveContent,
     getFile,
     queryPermission: async () => "granted",
     requestPermission: async () => "granted",
@@ -85,13 +133,7 @@ function nativeWritableHandle(payload) {
         },
         close: async () => {
           const nextContent = chunks.join("");
-          const savedPayload = await window.pywebview.api.save_native_file(
-            payload.id,
-            nextContent,
-          );
-          payload.content = nextContent;
-          payload.size = savedPayload?.size ?? new Blob([nextContent]).size;
-          payload.lastModified = savedPayload?.lastModified || Date.now();
+          await saveContent(nextContent);
         },
       };
     },

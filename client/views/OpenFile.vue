@@ -43,6 +43,52 @@
     </div>
 
     <div
+      v-if="activeFile?.externalState"
+      class="flatnotes-open-file-conflict print:hidden"
+      role="status"
+    >
+      <SvgIcon
+        type="mdi"
+        :path="
+          activeFile.externalState === 'deleted'
+            ? mdiFileAlertOutline
+            : mdiAlertOutline
+        "
+        size="0.88rem"
+      />
+      <span class="min-w-0 grow">
+        {{ externalStateMessage }}
+      </span>
+      <button
+        v-if="activeFile.externalState === 'conflict'"
+        type="button"
+        title="Compare versions"
+        aria-label="Compare versions"
+        @click="compareOpen = true"
+      >
+        <SvgIcon type="mdi" :path="mdiFileCompare" size="0.92rem" />
+      </button>
+      <button
+        v-if="activeFile.externalState === 'conflict'"
+        type="button"
+        title="Reload file from disk"
+        aria-label="Reload file from disk"
+        @click="reloadActiveFromDisk"
+      >
+        <SvgIcon type="mdi" :path="mdiReload" size="0.92rem" />
+      </button>
+      <button
+        v-if="activeFile.externalState === 'conflict'"
+        type="button"
+        title="Keep my version and overwrite disk"
+        aria-label="Keep my version and overwrite disk"
+        @click="overwriteExternalVersion"
+      >
+        <SvgIcon type="mdi" :path="mdiContentSaveAlertOutline" size="0.92rem" />
+      </button>
+    </div>
+
+    <div
       v-if="files.length > 1"
       class="mb-3 flex flex-wrap gap-1.5 print:hidden"
     >
@@ -60,15 +106,18 @@
       </button>
     </div>
 
-    <textarea
+    <SourceEditor
       v-if="activeFile && editMode"
       ref="editorTextarea"
       v-model="activeFile.draftContent"
-      class="flatnotes-open-file-editor"
-      spellcheck="false"
-      @input="markActiveFileDirty"
+      :language="editorLanguage"
+      :wrap="editorWrap"
+      :session-key="editorSessionKey"
+      :aria-label="`Edit ${activeFile.name}`"
+      @change="markActiveFileDirty"
       @keydown="documentKeydownHandler"
-    ></textarea>
+      @ready="reportEditorReady"
+    />
 
     <pre
       v-else-if="activeFile && activeFile.previewMode === 'plain'"
@@ -78,7 +127,7 @@
 
     <ToastViewer
       v-else-if="activeFile"
-      :key="activeFile.key"
+      :key="`${activeFile.key}:${activeFile.previewRevision}`"
       :initialValue="activeFile.previewMarkdown"
       :enhance-note-lead="false"
       :note-title="noteTitleForFile(activeFile)"
@@ -99,6 +148,42 @@
         here. Nothing is saved into NirvNotes.
       </p>
     </div>
+
+    <div
+      v-if="compareOpen && activeFile?.externalChange"
+      class="flatnotes-file-compare-backdrop print:hidden"
+      role="presentation"
+      @click.self="compareOpen = false"
+    >
+      <section
+        class="flatnotes-file-compare"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Compare local file versions"
+      >
+        <header>
+          <strong>File changed outside NirvNotes</strong>
+          <button
+            type="button"
+            title="Close comparison"
+            aria-label="Close comparison"
+            @click="compareOpen = false"
+          >
+            <SvgIcon type="mdi" :path="mdiClose" size="0.95rem" />
+          </button>
+        </header>
+        <div class="flatnotes-file-compare-grid">
+          <div>
+            <span>My version</span>
+            <pre>{{ activeFile.draftContent }}</pre>
+          </div>
+          <div>
+            <span>On disk</span>
+            <pre>{{ activeFile.externalChange.content }}</pre>
+          </div>
+        </div>
+      </section>
+    </div>
   </section>
 </template>
 
@@ -106,18 +191,24 @@
 import SvgIcon from "@jamescoyle/vue-icon";
 import {
   mdiAlertCircleOutline,
+  mdiAlertOutline,
   mdiCheck,
   mdiCheckCircleOutline,
   mdiClose,
+  mdiContentSaveAlertOutline,
   mdiContentSaveOutline,
   mdiContentCopy,
+  mdiFileAlertOutline,
+  mdiFileCompare,
   mdiFileDocumentOutline,
   mdiFolderOpenOutline,
   mdiPencilOutline,
+  mdiReload,
 } from "@mdi/js";
 import {
   computed,
   defineAsyncComponent,
+  nextTick,
   onMounted,
   onUnmounted,
   ref,
@@ -130,6 +221,10 @@ import IconLabel from "../components/IconLabel.vue";
 import { useDocumentSession } from "../documents/documentSession.js";
 import { createLocalFileStorageAdapter } from "../documents/storageAdapters.js";
 import {
+  clearDesktopFileSession,
+  saveDesktopFileSession,
+} from "../desktopSession.js";
+import {
   externalFileLaunch,
   supportsFileHandlingLaunchQueue,
   supportsNativeFileBridge,
@@ -139,6 +234,9 @@ import { useGlobalStore } from "../globalStore.js";
 const ToastViewer = defineAsyncComponent(
   () => import("../components/toastui/ToastViewer.vue"),
 );
+const SourceEditor = defineAsyncComponent(
+  () => import("../components/editor/SourceEditor.vue"),
+);
 
 const editorTextarea = ref();
 const fileInput = ref();
@@ -147,6 +245,7 @@ const activeKey = ref(null);
 const lastConsumedLaunchId = ref(null);
 const statusMessage = ref("");
 const statusTone = ref("info");
+const compareOpen = ref(false);
 const router = useRouter();
 const globalStore = useGlobalStore();
 const localFileStorageAdapter = createLocalFileStorageAdapter();
@@ -158,7 +257,7 @@ const documentSession = useDocumentSession({
   canEdit: () => Boolean(activeFile.value),
   hasDocument: () => Boolean(activeFile.value),
   requestClose: finishEditing,
-  focusEditor: () => editorTextarea.value?.focus({ preventScroll: true }),
+  focusEditor: () => editorTextarea.value?.focusEditor?.(),
   beforeLeaveEdit: () => {
     if (activeFile.value) {
       refreshPreview(activeFile.value);
@@ -183,15 +282,38 @@ const canSaveActiveFile = computed(
     Boolean(activeFile.value?.dirty) &&
     !documentSession.saving.value,
 );
+const editorLanguage = computed(() => {
+  const extension = activeFile.value?.extension || "text";
+  return extension === "md" ? "markdown" : extension;
+});
+const editorWrap = computed(() =>
+  ["md", "txt"].includes(activeFile.value?.extension),
+);
+const editorSessionKey = computed(() =>
+  activeFile.value ? `local:${activeFile.value.draftStorageKey}` : "",
+);
 const metadataItems = computed(() => {
   if (!activeFile.value) {
     return [];
   }
 
-  return [
+  const items = [
     { label: "type", value: activeFile.value.extension || "text" },
     { label: "size", value: formatBytes(activeFile.value.size) },
   ];
+  if (activeFile.value.encoding) {
+    items.push({ label: "encoding", value: activeFile.value.encoding });
+  }
+  if (activeFile.value.lineEnding) {
+    items.push({ label: "lines", value: activeFile.value.lineEnding });
+  }
+  return items;
+});
+const externalStateMessage = computed(() => {
+  if (activeFile.value?.externalState === "deleted") {
+    return "The original file was deleted outside NirvNotes.";
+  }
+  return "The file changed on disk while this version has unsaved edits.";
 });
 const visibleStatusMessage = computed(() =>
   statusTone.value === "error" ? statusMessage.value : "",
@@ -199,18 +321,33 @@ const visibleStatusMessage = computed(() =>
 const statusIcon = computed(() =>
   statusTone.value === "error" ? mdiAlertCircleOutline : mdiCheckCircleOutline,
 );
+let nativeWatcherTimer = null;
+let nativeWatcherBusy = false;
+let scrollSaveTimer = null;
+
 onMounted(() => {
   if (!supportsFileHandlingLaunchQueue() && !supportsNativeFileBridge()) {
     showStatus(
       "This browser can preview files here, but Windows file opening needs the installed NirvNotes app.",
     );
   }
+  startNativeWatcher();
+  window.addEventListener("scroll", scheduleActiveScrollSave, {
+    passive: true,
+  });
 });
 
 watch(externalFileLaunch, consumeExternalLaunch, { immediate: true });
 watchEffect(updateOpenFileActions);
+watchEffect(persistDesktopFiles);
 
-onUnmounted(() => globalStore.clearNoteActions());
+onUnmounted(() => {
+  window.clearInterval(nativeWatcherTimer);
+  window.clearTimeout(scrollSaveTimer);
+  saveActiveScroll();
+  window.removeEventListener("scroll", scheduleActiveScrollSave);
+  globalStore.clearNoteActions();
+});
 
 function updateOpenFileActions() {
   const file = activeFile.value;
@@ -319,7 +456,9 @@ function closeExternalFile() {
   });
   files.value = [];
   activeKey.value = null;
+  compareOpen.value = false;
   statusMessage.value = "";
+  clearDesktopFileSession();
   documentSession.leaveEdit();
   documentSession.setDirty(false);
   router.push({ name: "home" });
@@ -329,10 +468,12 @@ function activateFile(key) {
   if (key === activeKey.value) {
     return;
   }
+  saveActiveScroll();
   documentSession.leaveEdit();
   activeKey.value = key;
   restoreActiveDraft();
   documentSession.setDirty(Boolean(activeFile.value?.dirty));
+  restoreActiveScroll();
 }
 
 async function fileInputChanged(event) {
@@ -346,6 +487,7 @@ async function fileInputChanged(event) {
 }
 
 async function loadFiles(selectedFiles, message) {
+  saveActiveScroll();
   const readableFiles = [];
   for (const selectedFile of selectedFiles) {
     readableFiles.push(await fileToPreview(selectedFile));
@@ -358,12 +500,14 @@ async function loadFiles(selectedFiles, message) {
   if (readableFiles.length) {
     restoreActiveDraft();
     showStatus(message);
+    restoreActiveScroll();
   }
 }
 
 async function fileToPreview(selectedFile) {
-  const { file, handle } = normalizeSelectedFile(selectedFile);
+  const { file, handle, nativePayload } = normalizeSelectedFile(selectedFile);
   const content = await file.text();
+  const nativeMetadata = nativePayload || handle?.metadata || {};
   const extension = getExtension(file.name);
   const previewMarkdown = contentToPreviewMarkdown(
     content,
@@ -375,10 +519,13 @@ async function fileToPreview(selectedFile) {
     : "plain";
 
   return {
-    key: `${file.name}-${file.size}-${file.lastModified}-${Math.random()
-      .toString(36)
-      .slice(2)}`,
+    key:
+      handle?.id ||
+      `${file.name}-${file.size}-${file.lastModified}-${Math.random()
+        .toString(36)
+        .slice(2)}`,
     name: file.name,
+    path: nativeMetadata.path || handle?.path || "",
     size: file.size,
     type: file.type,
     extension,
@@ -389,8 +536,15 @@ async function fileToPreview(selectedFile) {
     previewMode,
     previewMarkdown,
     lastModified: file.lastModified,
+    encoding: nativeMetadata.encoding || "",
+    lineEnding: nativeMetadata.lineEnding || "",
+    bom: Boolean(nativeMetadata.bom),
+    version: nativeMetadata.version || "",
     dirty: false,
     draftRestored: false,
+    externalState: "",
+    externalChange: null,
+    previewRevision: 0,
   };
 }
 
@@ -423,12 +577,14 @@ function normalizeSelectedFile(selectedFile) {
     return {
       file: selectedFile.file,
       handle: selectedFile.handle || null,
+      nativePayload: selectedFile.nativePayload || null,
     };
   }
 
   return {
     file: selectedFile,
     handle: null,
+    nativePayload: null,
   };
 }
 
@@ -595,6 +751,7 @@ function refreshPreview(file) {
     file.extension,
     file.type,
   );
+  file.previewRevision += 1;
 }
 
 function setEditMode(value) {
@@ -616,11 +773,11 @@ function finishEditing() {
   }
 }
 
-function saveActiveFile(close = false) {
-  return documentSession.save({ close });
+function saveActiveFile(close = false, options = {}) {
+  return documentSession.save({ close, ...options });
 }
 
-async function persistActiveFile() {
+async function persistActiveFile({ force = false } = {}) {
   const file = activeFile.value;
   if (!file) {
     return false;
@@ -635,17 +792,32 @@ async function persistActiveFile() {
   const savedFile = await localFileStorageAdapter.save({
     handle: file.handle,
     content: file.draftContent,
+    force,
   });
+  const nativeMetadata = file.handle?.metadata || {};
   file.content = file.draftContent;
   file.size = savedFile.size;
   file.lastModified = savedFile.lastModified;
+  file.encoding = nativeMetadata.encoding || file.encoding;
+  file.lineEnding = nativeMetadata.lineEnding || file.lineEnding;
+  file.version = nativeMetadata.version || file.version;
   file.dirty = false;
+  file.externalState = "";
+  file.externalChange = null;
+  compareOpen.value = false;
   refreshPreview(file);
   return savedFile;
 }
 
 function handleActiveFileSaveError(error) {
-  if (error?.code === "permission-denied") {
+  if (error?.code === "external-conflict" && activeFile.value) {
+    activeFile.value.externalState = "conflict";
+    activeFile.value.externalChange = error.external;
+    statusMessage.value = "";
+  } else if (error?.code === "external-deleted" && activeFile.value) {
+    activeFile.value.externalState = "deleted";
+    statusMessage.value = "";
+  } else if (error?.code === "permission-denied") {
     showStatus("Save permission denied.", "error");
   } else if (error?.code === "read-only") {
     showStatus(error.message, "error");
@@ -663,6 +835,152 @@ function confirmDiscardUnsavedChanges() {
   return window.confirm("Discard unsaved external file changes?");
 }
 
+function persistDesktopFiles() {
+  const nativeFiles = files.value.filter((file) => file.path);
+  if (!nativeFiles.length) {
+    return;
+  }
+  saveDesktopFileSession({
+    files: nativeFiles,
+    activePath: activeFile.value?.path,
+    editMode: editMode.value,
+  });
+}
+
+function restoreLaunchSession(session) {
+  if (!session) {
+    return;
+  }
+  const restoredActive = files.value.find(
+    (file) => file.path === session.activePath,
+  );
+  if (restoredActive) {
+    activeKey.value = restoredActive.key;
+    restoreActiveDraft();
+    documentSession.setDirty(Boolean(restoredActive.dirty));
+  }
+  if (session.editMode && activeFile.value) {
+    documentSession.enterEdit();
+  }
+  restoreActiveScroll();
+}
+
+function activeScrollStorageKey() {
+  const identity = activeFile.value?.path || activeFile.value?.draftStorageKey;
+  return identity ? `nirvnotes:document-scroll:${identity}` : "";
+}
+
+function scheduleActiveScrollSave() {
+  window.clearTimeout(scrollSaveTimer);
+  scrollSaveTimer = window.setTimeout(saveActiveScroll, 120);
+}
+
+function saveActiveScroll() {
+  const key = activeScrollStorageKey();
+  if (key) {
+    localStorage.setItem(key, String(Math.max(0, window.scrollY || 0)));
+  }
+}
+
+function restoreActiveScroll() {
+  const key = activeScrollStorageKey();
+  const position = key ? Number(localStorage.getItem(key)) || 0 : 0;
+  nextTick(() => window.scrollTo({ top: position, behavior: "instant" }));
+}
+
+function startNativeWatcher() {
+  if (!supportsNativeFileBridge() || nativeWatcherTimer) {
+    return;
+  }
+  nativeWatcherTimer = window.setInterval(pollNativeFileChanges, 800);
+}
+
+async function pollNativeFileChanges() {
+  if (nativeWatcherBusy || !files.value.some((file) => file.handle?.id)) {
+    return;
+  }
+  nativeWatcherBusy = true;
+  try {
+    const changes = await window.pywebview.api.poll_native_file_changes();
+    for (const change of changes || []) {
+      const file = files.value.find((item) => item.handle?.id === change.id);
+      if (!file) {
+        continue;
+      }
+      if (change.deleted) {
+        file.externalState = "deleted";
+        file.externalChange = null;
+        continue;
+      }
+      if (file.dirty) {
+        file.externalState = "conflict";
+        file.externalChange = change;
+        continue;
+      }
+      applyNativePayload(file, change);
+    }
+  } catch (error) {
+    console.debug("Native file watcher unavailable", error);
+  } finally {
+    nativeWatcherBusy = false;
+  }
+}
+
+function applyNativePayload(file, payload) {
+  if (!file || !payload || typeof payload.content !== "string") {
+    return;
+  }
+  file.handle?.applyPayload?.(payload);
+  file.name = payload.name || file.name;
+  file.path = payload.path || file.path;
+  file.size = payload.size ?? file.size;
+  file.type = payload.type || file.type;
+  file.extension = payload.extension || file.extension;
+  file.lastModified = payload.lastModified || file.lastModified;
+  file.encoding = payload.encoding || file.encoding;
+  file.lineEnding = payload.lineEnding || file.lineEnding;
+  file.bom = Boolean(payload.bom);
+  file.version = payload.version || file.version;
+  file.content = payload.content;
+  file.draftContent = payload.content;
+  file.dirty = false;
+  file.externalState = "";
+  file.externalChange = null;
+  documentSession.clearDraft(file.draftStorageKey);
+  if (file === activeFile.value) {
+    documentSession.setDirty(false);
+  }
+  refreshPreview(file);
+}
+
+async function reloadActiveFromDisk() {
+  const file = activeFile.value;
+  if (!file?.path) {
+    return;
+  }
+  let payload = file.externalChange;
+  if (!payload) {
+    const payloads = await window.pywebview.api.restore_native_files([
+      file.path,
+    ]);
+    payload = payloads?.[0];
+  }
+  if (!payload) {
+    file.externalState = "deleted";
+    return;
+  }
+  applyNativePayload(file, payload);
+  compareOpen.value = false;
+  showStatus("Reloaded current file from disk.");
+}
+
+async function overwriteExternalVersion() {
+  const saved = await saveActiveFile(false, { force: true });
+  if (saved) {
+    compareOpen.value = false;
+  }
+}
+
 async function consumeExternalLaunch(launch) {
   if (!launch || lastConsumedLaunchId.value === launch.id) {
     return;
@@ -675,6 +993,7 @@ async function consumeExternalLaunch(launch) {
     }
 
     await loadFiles(launch.files, launch.message || "Opened from Windows.");
+    restoreLaunchSession(launch.restoreSession);
     return;
   }
 
@@ -701,6 +1020,21 @@ function copyActiveFile() {
 
 function documentKeydownHandler(event) {
   documentSession.keydownHandler(event);
+}
+
+function reportEditorReady() {
+  performance.mark("nirvnotes-editor-ready");
+  const reporter = window.pywebview?.api?.report_client_ready;
+  if (!reporter) {
+    return;
+  }
+  Promise.resolve(
+    reporter({
+      phase: "editor",
+      route: router.currentRoute.value.fullPath,
+      browserMs: Math.round(performance.now()),
+    }),
+  ).catch(() => {});
 }
 
 function formatBytes(bytes = 0) {
@@ -795,6 +1129,38 @@ function showStatus(message, tone = "info") {
   color: rgb(var(--theme-danger));
 }
 
+.flatnotes-open-file-conflict {
+  display: flex;
+  min-height: 1.82rem;
+  align-items: center;
+  gap: 0.42rem;
+  margin: 0 0 0.62rem;
+  border-block: 1px solid rgb(var(--theme-danger) / 0.46);
+  padding: 0.3rem 0.08rem;
+  color: rgb(var(--theme-danger));
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+.flatnotes-open-file-conflict button,
+.flatnotes-file-compare button {
+  display: inline-grid;
+  width: 1.65rem;
+  height: 1.65rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgb(var(--theme-border));
+  border-radius: 4px;
+  color: rgb(var(--theme-text-muted));
+  background: transparent;
+}
+
+.flatnotes-open-file-conflict button:hover,
+.flatnotes-file-compare button:hover {
+  border-color: rgb(var(--theme-text-muted));
+  color: rgb(var(--theme-text));
+}
+
 .flatnotes-open-file-meta {
   border: 1px solid rgb(var(--theme-border));
   background-color: rgb(var(--theme-background-elevated) / 0.45);
@@ -811,29 +1177,6 @@ function showStatus(message, tone = "info") {
 .flatnotes-open-file-meta strong {
   color: rgb(var(--theme-text));
   font-weight: 600;
-}
-
-.flatnotes-open-file-editor {
-  display: block;
-  width: 100%;
-  min-height: min(68vh, 44rem);
-  resize: vertical;
-  border: 1px solid rgb(var(--theme-border));
-  border-radius: 6px;
-  padding: 1rem;
-  color: rgb(var(--theme-text));
-  background-color: rgb(var(--theme-background) / 0.82);
-  font-family:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
-  font-size: 0.92rem;
-  line-height: 1.55;
-  outline: none;
-}
-
-.flatnotes-open-file-editor:focus {
-  border-color: rgb(var(--theme-text-muted));
-  background-color: rgb(var(--theme-background));
 }
 
 .flatnotes-open-file-plain-preview {
@@ -884,5 +1227,95 @@ function showStatus(message, tone = "info") {
 .flatnotes-open-file
   :deep(.toastui-editor-contents:not(.flatnotes-html-contents) h3) {
   font-size: 1.08rem;
+}
+
+.flatnotes-file-compare-backdrop {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(0 0 0 / 0.62);
+}
+
+.flatnotes-file-compare {
+  display: grid;
+  width: min(64rem, 100%);
+  max-height: min(84vh, 50rem);
+  overflow: hidden;
+  border: 1px solid rgb(var(--theme-border));
+  border-radius: 6px;
+  color: rgb(var(--theme-text));
+  background: rgb(var(--theme-background));
+  box-shadow: 0 1rem 3rem rgb(0 0 0 / 0.32);
+}
+
+.flatnotes-file-compare header {
+  display: flex;
+  min-height: 2.4rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid rgb(var(--theme-border));
+  padding: 0.35rem 0.55rem 0.35rem 0.75rem;
+  font-size: 0.82rem;
+}
+
+.flatnotes-file-compare-grid {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.flatnotes-file-compare-grid > div {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto 1fr;
+}
+
+.flatnotes-file-compare-grid > div + div {
+  border-left: 1px solid rgb(var(--theme-border));
+}
+
+.flatnotes-file-compare-grid span {
+  padding: 0.35rem 0.65rem;
+  color: rgb(var(--theme-text-muted));
+  background: rgb(var(--theme-background-elevated) / 0.52);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.flatnotes-file-compare-grid pre {
+  min-width: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 0.7rem;
+  color: rgb(var(--theme-text));
+  background: transparent;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 0.74rem;
+  line-height: 1.48;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 720px) {
+  .flatnotes-file-compare-grid {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+
+  .flatnotes-file-compare-grid > div + div {
+    border-top: 1px solid rgb(var(--theme-border));
+    border-left: 0;
+  }
+
+  .flatnotes-file-compare-grid pre {
+    max-height: 34vh;
+  }
 }
 </style>

@@ -100,11 +100,14 @@
         :task-checkbox-toggle-handler="toggleTaskCheckbox"
         class="toast-viewer min-w-0 max-w-full pb-4"
       />
-      <ToastEditor
+      <SourceEditor
         v-if="editMode && editorFormat === 'markdown'"
         ref="contentEditor"
         :initialValue="getInitialEditorValue()"
-        :initialEditType="loadDefaultEditorMode()"
+        language="markdown"
+        :normalize-tags="true"
+        :session-key="`cloud:${newTitle || note.title || 'new'}`"
+        :aria-label="`Edit ${newTitle || note.title || 'note'}`"
         :addImageBlobHook="addImageBlobHook"
         @change="startContentChangedTimeout"
         @keydown="keydownHandler"
@@ -196,8 +199,8 @@ const HtmlEditor = defineAsyncComponent(
 const HtmlViewer = defineAsyncComponent(
   () => import("../components/html/HtmlViewer.vue"),
 );
-const ToastEditor = defineAsyncComponent(
-  () => import("../components/toastui/ToastEditor.vue"),
+const SourceEditor = defineAsyncComponent(
+  () => import("../components/editor/SourceEditor.vue"),
 );
 const ToastViewer = defineAsyncComponent(
   () => import("../components/toastui/ToastViewer.vue"),
@@ -306,6 +309,7 @@ function init() {
       .then((data) => {
         note.value = data;
         loadingIndicator.value.setLoaded();
+        markNoteReady();
       })
       .catch((error) => {
         if (error.response?.status === 404) {
@@ -329,6 +333,25 @@ function init() {
       loadingIndicator.value.setLoaded();
     });
   }
+}
+
+function markNoteReady() {
+  nextTick(() => {
+    window.requestAnimationFrame(() => {
+      performance.mark("nirvnotes-note-ready");
+      const reporter = window.pywebview?.api?.report_client_ready;
+      if (!reporter) {
+        return;
+      }
+      Promise.resolve(
+        reporter({
+          phase: "note",
+          route: router.currentRoute.value.fullPath,
+          browserMs: Math.round(performance.now()),
+        }),
+      ).catch(() => {});
+    });
+  });
 }
 
 function getInitialNewTitle() {

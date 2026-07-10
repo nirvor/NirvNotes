@@ -1,8 +1,9 @@
 # NirvNotes Windows Client
 
-Small Windows host for the existing NirvNotes web app. Android stays the normal
-PWA; this client only replaces the Chrome PWA shell on Windows where Chrome
-keeps a hard minimum width.
+Native Windows shell for NirvNotes. Android stays the normal PWA. The Windows
+client bundles the complete UI locally and only sends note/API/media requests
+to the VPS. It therefore starts and opens local files even when Tailscale or the
+VPS is unavailable.
 
 ## Run locally
 
@@ -40,13 +41,19 @@ but does not fight Windows UserChoice protection.
 
 ## Behavior
 
-- Loads the live NirvNotes VPS URL by default.
-- Uses a local loopback proxy by default so WebView2 does not load the Tailnet
-  `.ts.net` TLS origin directly.
+- Serves the bundled NirvNotes UI from a local loopback server.
+- Proxies only dynamic API, attachment, and note-asset requests to the live VPS.
+- Keeps the shell and local file editor usable while the VPS is offline.
 - Uses persistent WebView2 storage under `%LOCALAPPDATA%\NirvNotes\WebView2`.
 - Writes startup diagnostics to `%LOCALAPPDATA%\NirvNotes\logs`.
 - Opens `.md`, `.txt`, `.cfg`, and `.ini` from Windows or the native menu.
-- Saves edited external files back to their original path when writable.
+- Uses one compact CodeMirror editor with line numbers, syntax color, search,
+  keyboard undo/redo, and exact raw-source copy.
+- Preserves UTF-8 BOM, Windows-1252, LF/CRLF, cursor, scroll, open files, edit
+  mode, and the last window position.
+- Watches local files natively, reloads clean files automatically, and shows a
+  compact compare/reload/overwrite choice when both versions changed.
+- Saves edited external files atomically back to their original path.
 - Does not import external files into the VPS note folder.
 - Supports multiple independent windows. A second app launch gets its own local
   proxy port, and `New Window` opens the current NirvNotes route natively.

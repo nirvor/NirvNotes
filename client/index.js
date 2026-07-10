@@ -11,6 +11,11 @@ import {
   supportsFileHandlingLaunchQueue,
   supportsNativeFileBridge,
 } from "./externalFiles.js";
+import {
+  loadDesktopFileSession,
+  loadDesktopRouteSession,
+  saveDesktopRouteSession,
+} from "./desktopSession.js";
 import { loadStoredToken } from "./tokenStorage.js";
 import router from "/router.js";
 
@@ -36,15 +41,70 @@ app.mount("#app");
 let nativeHostInitialized = false;
 let nativeLaunchConsumptionInFlight = null;
 
-async function publishNativeFiles(payloads, message) {
+async function publishNativeFiles(payloads, message, options = {}) {
   const files = filesFromNativePayloads(payloads || []);
   if (!files.length) {
     return false;
   }
 
-  publishExternalFileLaunch(files, message || "Opened from NirvNotes client.");
+  publishExternalFileLaunch(
+    files,
+    message || "Opened from NirvNotes client.",
+    options,
+  );
   await router.push({ name: "openFile" }).catch(() => {});
   return true;
+}
+
+async function restoreNativeFileSession() {
+  const currentRouteName = router.currentRoute.value.name;
+  if (
+    !supportsNativeFileBridge() ||
+    !["home", "openFile"].includes(currentRouteName) ||
+    routeWantsNativeLaunch()
+  ) {
+    return false;
+  }
+  const session = loadDesktopFileSession();
+  if (!session?.paths?.length) {
+    return false;
+  }
+  try {
+    const payloads = await window.pywebview.api.restore_native_files(
+      session.paths,
+    );
+    const activeIndex = payloads.findIndex(
+      (payload) => payload.path === session.activePath,
+    );
+    if (activeIndex > 0) {
+      payloads.unshift(payloads.splice(activeIndex, 1)[0]);
+    }
+    return publishNativeFiles(payloads, "Previous local session restored.", {
+      restoreSession: session,
+    });
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+}
+
+async function restoreNativeHostSession() {
+  const routeSession = loadDesktopRouteSession();
+  if (!routeSession || routeSession.path.startsWith("/open-file")) {
+    const restoredFiles = await restoreNativeFileSession();
+    if (restoredFiles) {
+      return true;
+    }
+  }
+  if (
+    routeSession?.path &&
+    routeSession.path !== "/" &&
+    router.currentRoute.value.name === "home"
+  ) {
+    await router.replace(routeSession.path).catch(() => {});
+    return true;
+  }
+  return false;
 }
 
 async function consumeNativeLaunchFiles() {
@@ -136,15 +196,20 @@ window.addEventListener("nirvnotes:consume-native-launch-files", () => {
 
 window.__nirvnotesConsumeNativeLaunchFiles = consumeNativeLaunchFilesNow;
 
-function initializeNativeHost() {
+async function initializeNativeHost() {
   if (nativeHostInitialized || !supportsNativeFileBridge()) {
     return;
   }
 
   nativeHostInitialized = true;
+  await router.isReady();
   document.body.classList.add("nirvnotes-native-host");
   window.dispatchEvent(new CustomEvent("nirvnotes:native-ready"));
-  scheduleNativeLaunchFileConsumption();
+  if (routeWantsNativeLaunch()) {
+    await consumeNativeLaunchFilesNow();
+  } else {
+    await restoreNativeHostSession();
+  }
 }
 
 function scheduleNativeHostInitialization() {
@@ -155,7 +220,10 @@ window.addEventListener("pywebviewready", scheduleNativeHostInitialization, {
   once: true,
 });
 
-router.afterEach(() => {
+router.afterEach((to) => {
+  if (nativeHostInitialized) {
+    saveDesktopRouteSession(to.fullPath);
+  }
   window.setTimeout(scheduleNativeLaunchFileConsumption, 0);
 });
 

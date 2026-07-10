@@ -23,6 +23,13 @@
       }"
       @toggleSearchModal="toggleSearchModal"
     />
+    <div
+      v-if="desktopShell.enabled && desktopShell.cloudOnline === false"
+      class="flatnotes-cloud-offline-strip print:hidden"
+      role="status"
+    >
+      Cloud unavailable. Local files remain editable.
+    </div>
     <NoteTabs v-if="showNavBar" />
     <RouterView />
   </LoadingIndicator>
@@ -32,13 +39,29 @@
 import Mousetrap from "mousetrap";
 import "mousetrap/plugins/global-bind/mousetrap-global-bind";
 import { useToast } from "primevue/usetoast";
-import { computed, onMounted, ref } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
 import { RouterView, useRoute } from "vue-router";
 
 import { apiErrorHandler, getConfig } from "./api.js";
 import PrimeToast from "./components/PrimeToast.vue";
 import { useGlobalStore } from "./globalStore.js";
 import { loadTheme } from "./helpers.js";
+import {
+  desktopFallbackConfig,
+  desktopShell,
+  isCloudNetworkError,
+} from "./desktopShell.js";
+import {
+  loadDesktopRouteScroll,
+  saveDesktopRouteScroll,
+} from "./desktopSession.js";
 import NavBar from "./partials/NavBar.vue";
 import NoteTabs from "./partials/NoteTabs.vue";
 import SearchModal from "./partials/SearchModal.vue";
@@ -76,19 +99,75 @@ Mousetrap.bindGlobal("ctrl+alt+h", () => {
   }
 });
 
-onMounted(loadInitialConfig);
+let routeScrollTimer = null;
+
+onMounted(() => {
+  loadInitialConfig();
+  if (desktopShell.enabled) {
+    window.addEventListener("scroll", scheduleRouteScrollSave, {
+      passive: true,
+    });
+    restoreRouteScroll(route.fullPath);
+  }
+});
+
+onBeforeUnmount(() => {
+  window.clearTimeout(routeScrollTimer);
+  saveCurrentRouteScroll();
+  window.removeEventListener("scroll", scheduleRouteScrollSave);
+});
+
+watch(
+  () => route.fullPath,
+  (path, previousPath) => {
+    if (!desktopShell.enabled) {
+      return;
+    }
+    if (previousPath) {
+      saveDesktopRouteScroll(previousPath, window.scrollY);
+    }
+    restoreRouteScroll(path);
+  },
+);
 
 function loadInitialConfig() {
   getConfig()
     .then((data) => {
       globalStore.config = data;
-      loadingIndicator.value?.setLoaded();
+      markAppLoaded();
       warmCommonNoteViews();
     })
     .catch((error) => {
+      if (isCloudNetworkError(error)) {
+        globalStore.config = desktopFallbackConfig;
+        markAppLoaded();
+        return;
+      }
       apiErrorHandler(error, toast);
       loadingIndicator.value?.setFailed();
     });
+}
+
+let appReadyReported = false;
+
+function markAppLoaded() {
+  loadingIndicator.value?.setLoaded();
+  performance.mark("nirvnotes-app-ready");
+  if (appReadyReported || !window.pywebview?.api?.report_client_ready) {
+    return;
+  }
+  appReadyReported = true;
+  nextTick(() => {
+    window.requestAnimationFrame(() => {
+      window.pywebview.api
+        .report_client_ready({
+          phase: "shell",
+          route: route.fullPath,
+          browserMs: Math.round(performance.now()),
+        })
+        .catch(() => {});
+    });
+  });
 }
 
 const showNavBar = computed(() => {
@@ -126,27 +205,40 @@ function toggleSearchModal() {
   isSearchModalVisible.value = !isSearchModalVisible.value;
 }
 
+function scheduleRouteScrollSave() {
+  window.clearTimeout(routeScrollTimer);
+  routeScrollTimer = window.setTimeout(saveCurrentRouteScroll, 120);
+}
+
+function saveCurrentRouteScroll() {
+  saveDesktopRouteScroll(route.fullPath, window.scrollY);
+}
+
+function restoreRouteScroll(path) {
+  const position = loadDesktopRouteScroll(path);
+  nextTick(() => window.scrollTo({ top: position, behavior: "instant" }));
+}
+
 function warmCommonNoteViews() {
-  const run = () => {
+  const warmLightViews = () => {
     void Promise.all([
       import("./components/html/HtmlViewer.vue"),
-      import("./components/toastui/ToastViewer.vue"),
       import("./components/work/WorkNoteViewer.vue"),
-      import("./components/toastui/renderEnhancements.js"),
     ]).catch(() => {});
+  };
+  const warmMarkdownView = () => {
+    void import("./components/toastui/ToastViewer.vue").catch(() => {});
   };
 
   if ("requestIdleCallback" in window) {
-    if (
-      window.pywebview ||
-      document.body.classList.contains("nirvnotes-native-host")
-    ) {
-      window.setTimeout(run, 450);
-      return;
-    }
-    window.requestIdleCallback(run, { timeout: 2200 });
+    window.requestIdleCallback(warmLightViews, { timeout: 1200 });
+    window.setTimeout(
+      () => window.requestIdleCallback(warmMarkdownView, { timeout: 3500 }),
+      desktopShell.enabled ? 1800 : 700,
+    );
   } else {
-    window.setTimeout(run, 900);
+    window.setTimeout(warmLightViews, 500);
+    window.setTimeout(warmMarkdownView, desktopShell.enabled ? 2600 : 1200);
   }
 }
 
@@ -178,5 +270,13 @@ loadTheme();
 .flatnotes-app-shell-note.flatnotes-app-shell-dashboard {
   width: min(100%, calc(100vw - 1.5rem));
   max-width: none;
+}
+
+.flatnotes-cloud-offline-strip {
+  align-self: flex-end;
+  margin: -0.3rem 0 0.45rem;
+  color: rgb(var(--theme-text-very-muted));
+  font-size: 0.68rem;
+  line-height: 1;
 }
 </style>
