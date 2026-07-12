@@ -77,6 +77,7 @@ import { apiErrorHandler, getSemanticIndex, getTags } from "../api.js";
 import { isCloudNetworkError } from "../desktopShell.js";
 import IconLabel from "../components/IconLabel.vue";
 import * as constants from "../constants.js";
+import { isSystemTag } from "../systemTags.js";
 import {
   getTagUsage,
   normalizeTagName,
@@ -110,7 +111,6 @@ const priorityTagBonus = {
   work: 90,
   private: 70,
   infra: 60,
-  pinned: 24,
 };
 
 function searchTermForInput(value = "") {
@@ -266,7 +266,7 @@ async function showTagCloud() {
       index.forEach((note) => {
         new Set(note.tags || []).forEach((tag) => {
           const normalizedTag = normalizeTagName(tag);
-          if (!normalizedTag) {
+          if (!normalizedTag || isSystemTag(normalizedTag)) {
             return;
           }
           tagNames.add(normalizedTag);
@@ -275,7 +275,7 @@ async function showTagCloud() {
       });
       indexedTags.forEach((tag) => {
         const normalizedTag = normalizeTagName(tag);
-        if (normalizedTag) {
+        if (normalizedTag && !isSystemTag(normalizedTag)) {
           tagNames.add(normalizedTag);
         }
       });
@@ -337,7 +337,7 @@ async function filterTagMatches(input) {
         apiErrorHandler(error, toast);
       }
     }
-    tags = tags.map((tag) => `#${tag}`);
+    tags = tags.filter((tag) => !isSystemTag(tag)).map((tag) => `#${tag}`);
   }
   const currentTagMatchCount = tagMatches.value.length;
   tagMatches.value = tags.filter(

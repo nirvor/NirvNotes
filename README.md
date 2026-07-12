@@ -3,19 +3,25 @@
 NirvNotes is a private, HTML-first note system built on the useful foundation of
 flatnotes, but now moving as its own app.
 
-The core idea stays deliberately simple: one flat folder of notes, no notebook
-tree, sparse bottom tags, fast search, and notes that remain easy for humans and
-LLMs to read. The current fork focuses on clean HTML notes, media-rich research
-notes, compact work notes, mobile-friendly viewing, and a calm dark interface.
+The core idea stays deliberately simple: local project files remain local, while
+selected durable notes live in one flat HTML library. There is no notebook tree,
+no automatic import, and no second sync system. NirvNotes focuses on fast text
+editing, sparse tags, media-rich research notes, mobile-friendly reading, and a
+calm dark interface.
 
 ## Current Direction
 
-- One note file per note, currently HTML as the durable format.
-- All active notes live in one folder and are organized through tags.
+- Workspace files (`.md`, `.txt`, `.cfg`, `.ini`) are edited in place at their
+  original local path.
+- Library notes are durable HTML files in one VPS folder and are organized
+  through sparse content tags.
+- `Keep as note` creates an explicit one-way HTML snapshot of a local file.
+- The star controls favorites as hidden `pinned` metadata; users do not need to
+  type `#pinned`.
 - Research notes can use clean sections, diagrams, plots, maps, images, source
   lists, and compact lead visuals.
-- Work notes keep a rendered HTML view plus a raw Markdown copy source inside
-  the same HTML note.
+- Lightweight Library notes keep a rendered HTML view plus raw Markdown copy
+  source inside the same HTML file.
 - The app should stay quiet, fast, readable, and not turn into a dashboard-heavy
   knowledge base.
 

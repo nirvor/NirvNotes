@@ -219,6 +219,40 @@ function normalizeWorkMarkdownTags(markdown = "") {
   };
 }
 
+function setWorkMarkdownTag(markdown = "", tag = "", enabled = true) {
+  const normalizedTag = normalizeTagName(tag);
+  const normalized = normalizeWorkMarkdownTags(markdown);
+  if (!normalizedTag) {
+    return normalized.markdown;
+  }
+
+  const tags = new Set(normalized.tags);
+  if (enabled) {
+    tags.add(normalizedTag);
+  } else {
+    tags.delete(normalizedTag);
+  }
+
+  const lines = normalized.markdown.replace(/\n$/, "").split("\n");
+  const bottomTagLineIndexes = getBottomTagLineIndexes(lines);
+  const bodyLines = lines.filter(
+    (_, index) => !bottomTagLineIndexes.has(index),
+  );
+  while (bodyLines.length && !bodyLines[bodyLines.length - 1].trim()) {
+    bodyLines.pop();
+  }
+
+  const sortedTags = sortWorkTags([...tags]);
+  if (bodyLines.length && sortedTags.length) {
+    bodyLines.push("");
+  }
+  if (sortedTags.length) {
+    bodyLines.push(sortedTags.map((item) => `#${item}`).join(" "));
+  }
+
+  return `${bodyLines.join("\n").trimEnd()}\n`;
+}
+
 function renderInlineMarkdown(value = "") {
   const codeSpans = [];
   let text = String(value).replace(/`([^`]+)`/g, (_, code) => {
@@ -306,7 +340,7 @@ function renderMarkdownToHtml(markdown = "") {
       !/^\s*[-*+]\s+/.test(lines[index]) &&
       !/^\s*\d+[.)]\s+/.test(lines[index]) &&
       !/^\s*>/.test(lines[index]) &&
-      !/^\s*```/.test(lines[index]) &&
+      !/^\s*`{3,}/.test(lines[index]) &&
       !/^\s*---+\s*$/.test(lines[index])
     ) {
       paragraph.push(lines[index].trim());
@@ -326,12 +360,19 @@ function renderMarkdownToHtml(markdown = "") {
       continue;
     }
 
-    const fence = trimmed.match(/^```([a-zA-Z0-9_-]+)?\s*$/);
+    const fence = trimmed.match(/^(`{3,})([a-zA-Z0-9_-]+)?\s*$/);
     if (fence) {
-      const language = fence[1] || "";
+      const fenceMarker = fence[1];
+      const language = fence[2] || "";
       index += 1;
       const codeLines = [];
-      while (index < lines.length && !lines[index].trim().startsWith("```")) {
+      while (
+        index < lines.length &&
+        !(() => {
+          const closingFence = lines[index].trim().match(/^(`{3,})\s*$/);
+          return closingFence?.[1].length >= fenceMarker.length;
+        })()
+      ) {
         codeLines.push(lines[index]);
         index += 1;
       }
@@ -474,13 +515,18 @@ function extractWorkMarkdown(value = "") {
   return normalizeMarkdown(documentValue.body?.textContent || "");
 }
 
-function buildWorkNoteHtml(title = "Untitled", markdown = "") {
+function buildWorkNoteHtml(title = "Untitled", markdown = "", options = {}) {
   const normalized = normalizeWorkMarkdownTags(markdown);
   const normalizedMarkdown = normalized.markdown;
   const tags = normalized.tags;
   const escapedTitle = escapeHtml(title || "Untitled");
   const rendered = renderMarkdownToHtml(normalizedMarkdown);
-  const metaTags = tags.join(",");
+  const metaTags = sortWorkTags([
+    ...new Set([
+      ...tags,
+      ...(options.systemTags || []).map(normalizeTagName).filter(Boolean),
+    ]),
+  ]).join(",");
 
   return `<!doctype html>
 <html lang="de">
@@ -492,7 +538,6 @@ function buildWorkNoteHtml(title = "Untitled", markdown = "") {
   </head>
   <body>
     <article class="flatnote flatnote-work-note" data-flatnotes-note-kind="work">
-      <p class="flatnote-kicker">Work Note</p>
       <h1>${escapedTitle}</h1>
       <section class="flatnote-work-rendered" data-flatnotes-component="work-body">
 ${rendered}
@@ -511,4 +556,5 @@ export {
   isWorkNoteHtml,
   normalizeWorkMarkdownTags,
   renderMarkdownToHtml,
+  setWorkMarkdownTag,
 };

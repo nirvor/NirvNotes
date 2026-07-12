@@ -7,7 +7,10 @@
     <div class="flatnotes-open-file-heading">
       <div class="min-w-0">
         <div class="flatnotes-open-file-kicker-line">
-          <span class="flatnotes-open-file-kicker">External File</span>
+          <span class="flatnotes-open-file-kicker">
+            <SvgIcon type="mdi" :path="mdiHarddisk" size="0.68rem" />
+            Local
+          </span>
           <span
             v-for="item in metadataItems"
             :key="item.label"
@@ -195,6 +198,7 @@ import {
   mdiCheck,
   mdiCheckCircleOutline,
   mdiClose,
+  mdiCloudUploadOutline,
   mdiContentSaveAlertOutline,
   mdiContentSaveOutline,
   mdiContentCopy,
@@ -202,6 +206,7 @@ import {
   mdiFileCompare,
   mdiFileDocumentOutline,
   mdiFolderOpenOutline,
+  mdiHarddisk,
   mdiPencilOutline,
   mdiReload,
 } from "@mdi/js";
@@ -216,7 +221,9 @@ import {
   watchEffect,
 } from "vue";
 import { useRouter } from "vue-router";
+import { useToast } from "primevue/usetoast";
 
+import { apiErrorHandler, createNote } from "../api.js";
 import IconLabel from "../components/IconLabel.vue";
 import { useDocumentSession } from "../documents/documentSession.js";
 import { createLocalFileStorageAdapter } from "../documents/storageAdapters.js";
@@ -230,6 +237,8 @@ import {
   supportsNativeFileBridge,
 } from "../externalFiles.js";
 import { useGlobalStore } from "../globalStore.js";
+import { getToastOptions } from "../helpers.js";
+import { buildLocalLibraryNote } from "../localNotePromotion.js";
 
 const ToastViewer = defineAsyncComponent(
   () => import("../components/toastui/ToastViewer.vue"),
@@ -246,7 +255,9 @@ const lastConsumedLaunchId = ref(null);
 const statusMessage = ref("");
 const statusTone = ref("info");
 const compareOpen = ref(false);
+const keepingFile = ref(false);
 const router = useRouter();
+const toast = useToast();
 const globalStore = useGlobalStore();
 const localFileStorageAdapter = createLocalFileStorageAdapter();
 
@@ -383,6 +394,15 @@ function updateOpenFileActions() {
       handler: copyActiveFile,
     },
     {
+      key: "external-keep",
+      label: keepingFile.value ? "Keeping..." : "Keep as note",
+      iconPath: mdiCloudUploadOutline,
+      visible: Boolean(file),
+      disabled: keepingFile.value,
+      iconOnly: true,
+      handler: keepActiveFileAsNote,
+    },
+    {
       key: "external-choose",
       label: "Open",
       iconPath: mdiFolderOpenOutline,
@@ -400,6 +420,48 @@ function updateOpenFileActions() {
   ]);
   globalStore.setNoteMenuItems([]);
   globalStore.setNoteLayout({ kind: "markdown" });
+}
+
+async function keepActiveFileAsNote() {
+  const file = activeFile.value;
+  if (!file || keepingFile.value) {
+    return;
+  }
+
+  const snapshot = buildLocalLibraryNote(file);
+  keepingFile.value = true;
+  try {
+    const created = await createNote(
+      snapshot.title,
+      snapshot.content,
+      snapshot.format,
+    );
+    toast.add(
+      getToastOptions(
+        "Local snapshot added to the NirvNotes library.",
+        "Note Kept",
+        "success",
+      ),
+    );
+    await router.push({
+      name: "note",
+      params: { title: created.title },
+    });
+  } catch (error) {
+    if (error.response?.status === 409) {
+      toast.add(
+        getToastOptions(
+          `A note named "${snapshot.title}" already exists. Nothing was overwritten.`,
+          "Already Exists",
+          "error",
+        ),
+      );
+    } else {
+      apiErrorHandler(error, toast);
+    }
+  } finally {
+    keepingFile.value = false;
+  }
 }
 
 async function chooseFile() {
@@ -1077,6 +1139,9 @@ function showStatus(message, tone = "info") {
 }
 
 .flatnotes-open-file-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
   color: rgb(var(--theme-text-very-muted));
   font-size: 0.66rem;
   font-weight: 700;

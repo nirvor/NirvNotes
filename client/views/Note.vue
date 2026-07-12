@@ -148,6 +148,8 @@ import {
   mdiLanguageHtml5,
   mdiLinkVariant,
   mdiNoteOffOutline,
+  mdiStar,
+  mdiStarOutline,
   mdiTextBoxOutline,
 } from "@mdi/js";
 import {
@@ -192,6 +194,10 @@ import { createVpsNoteStorageAdapter } from "../documents/storageAdapters.js";
 import { useGlobalStore } from "../globalStore.js";
 import { getToastOptions } from "../helpers.js";
 import { isCurrentTokenStored } from "../tokenStorage.js";
+import {
+  documentHasSystemTag,
+  setDocumentSystemTag,
+} from "../noteSystemTags.js";
 
 const HtmlEditor = defineAsyncComponent(
   () => import("../components/html/HtmlEditor.vue"),
@@ -258,6 +264,14 @@ const isDraftModalVisible = ref(false);
 const isNewNote = computed(() => !props.title);
 const loadingIndicator = ref();
 const note = ref({});
+const pinBusy = ref(false);
+const isPinned = computed(() =>
+  documentHasSystemTag(
+    note.value.content || "",
+    "pinned",
+    note.value.format || "html",
+  ),
+);
 const reservedFilenameCharacters = /[<>:"/\\|?*]/;
 const router = useRouter();
 const newTitle = ref();
@@ -593,6 +607,48 @@ async function toggleTaskCheckbox({ index, checked }) {
   } catch (error) {
     apiErrorHandler(error, toast);
     throw error;
+  }
+}
+
+async function togglePinned() {
+  if (
+    pinBusy.value ||
+    !canModify.value ||
+    isNewNote.value ||
+    !note.value.title
+  ) {
+    return;
+  }
+
+  const nextPinned = !isPinned.value;
+  const newContent = setDocumentSystemTag({
+    content: note.value.content || "",
+    title: note.value.title,
+    format: note.value.format || "html",
+    tag: "pinned",
+    enabled: nextPinned,
+  });
+
+  pinBusy.value = true;
+  try {
+    note.value = await updateNote(
+      note.value.title,
+      note.value.title,
+      newContent,
+      note.value.format || "html",
+    );
+    documentSession.clearDraft();
+    toast.add(
+      getToastOptions(
+        nextPinned ? "Added to favorites." : "Removed from favorites.",
+        nextPinned ? "Pinned" : "Unpinned",
+        "success",
+      ),
+    );
+  } catch (error) {
+    apiErrorHandler(error, toast);
+  } finally {
+    pinBusy.value = false;
   }
 }
 
@@ -1016,6 +1072,20 @@ function updateNoteActions() {
       visible: !editMode.value && !isNewNote.value && Boolean(note.value.title),
       iconOnly: true,
       handler: () => copyNote(),
+    },
+    {
+      key: "pin",
+      label: isPinned.value ? "Unpin" : "Pin",
+      iconPath: isPinned.value ? mdiStar : mdiStarOutline,
+      visible:
+        canModify.value &&
+        !editMode.value &&
+        !isNewNote.value &&
+        Boolean(note.value.title),
+      disabled: pinBusy.value,
+      iconOnly: true,
+      active: isPinned.value,
+      handler: togglePinned,
     },
     {
       key: "delete",

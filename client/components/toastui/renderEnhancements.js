@@ -8,6 +8,7 @@ import {
   mdiTag,
 } from "@mdi/js";
 import { writePlainTextToClipboard } from "../../clipboard.js";
+import { isSystemTag } from "../../systemTags.js";
 import { recordTagUse } from "../../tagUsage.js";
 
 const codeBlockWrapperClass = "flatnotes-code-block-wrapper";
@@ -962,7 +963,7 @@ export function enhanceBottomTags(rootElement) {
     ...new Set(
       tagElements.flatMap((element) => getTagsFromText(element.textContent)),
     ),
-  ];
+  ].filter((tag) => !isSystemTag(tag));
 
   if (tags.length === 0) {
     return;

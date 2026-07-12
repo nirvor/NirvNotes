@@ -12,6 +12,10 @@
           :disabled="action.disabled"
           :style="action.style || 'subtle'"
           class="relative"
+          :class="{
+            'flatnotes-navbar-icon-only': action.iconOnly,
+            'flatnotes-navbar-action-active': action.active,
+          }"
           @click="action.handler"
         >
           <div
@@ -52,7 +56,10 @@
           :disabled="action.disabled"
           :style="action.style || 'subtle'"
           class="relative"
-          :class="{ 'flatnotes-navbar-icon-only': action.iconOnly }"
+          :class="{
+            'flatnotes-navbar-icon-only': action.iconOnly,
+            'flatnotes-navbar-action-active': action.active,
+          }"
           @click="action.handler"
         >
           <div
@@ -318,6 +325,10 @@ function showLogOutButton() {
   align-items: center;
   justify-content: center;
   padding-inline: 0.42rem;
+}
+
+.flatnotes-navbar-actions :deep(.flatnotes-navbar-action-active) {
+  color: rgb(var(--theme-brand));
 }
 
 .flatnotes-navbar-actions
