@@ -124,7 +124,7 @@ const props = defineProps({
   showKindSwitch: Boolean,
 });
 
-const emit = defineEmits(["change", "keydown", "set-kind"]);
+const emit = defineEmits(["change", "keydown", "ready", "set-kind"]);
 
 const copied = ref(false);
 const markdown = ref(initialMarkdown());
@@ -428,6 +428,32 @@ function getMarkdown() {
   return normalizeEditorTags({ restoreSelection: false });
 }
 
+function getSearchText() {
+  return markdown.value;
+}
+
+function selectSearchRange(from, to) {
+  const element = textarea.value;
+  if (!element) {
+    return;
+  }
+  const start = Math.max(0, Math.min(Number(from) || 0, markdown.value.length));
+  const end = Math.max(
+    start,
+    Math.min(Number(to) || start, markdown.value.length),
+  );
+  element.setSelectionRange(start, end);
+  const lineCount = markdown.value.slice(0, start).split("\n").length - 1;
+  const styles = getComputedStyle(element);
+  const lineHeight =
+    Number.parseFloat(styles.lineHeight) ||
+    Number.parseFloat(styles.fontSize) * 1.45;
+  element.scrollTop = Math.max(
+    0,
+    lineCount * lineHeight - element.clientHeight / 2,
+  );
+}
+
 function getContent(title) {
   return buildWorkNoteHtml(
     title || props.noteTitle || "Untitled",
@@ -454,11 +480,18 @@ onMounted(async () => {
   await nextTick();
   resizeTextarea();
   textarea.value?.focus();
+  emit("ready");
 });
 
 onBeforeUnmount(clearTagNormalizeTimeout);
 
-defineExpose({ focusEditor, getContent, getMarkdown });
+defineExpose({
+  focusEditor,
+  getContent,
+  getMarkdown,
+  getSearchText,
+  selectSearchRange,
+});
 </script>
 
 <style lang="scss" scoped>

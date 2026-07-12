@@ -75,7 +75,7 @@ const props = defineProps({
   showKindSwitch: Boolean,
 });
 
-const emit = defineEmits(["change", "keydown", "set-kind"]);
+const emit = defineEmits(["change", "keydown", "ready", "set-kind"]);
 
 const content = ref(props.initialValue || "");
 const fileInput = ref();
@@ -418,6 +418,32 @@ function getContent() {
   return normalizeEditorTags();
 }
 
+function getSearchText() {
+  return content.value;
+}
+
+function selectSearchRange(from, to) {
+  const element = textarea.value;
+  if (!element) {
+    return;
+  }
+  const start = Math.max(0, Math.min(Number(from) || 0, content.value.length));
+  const end = Math.max(
+    start,
+    Math.min(Number(to) || start, content.value.length),
+  );
+  element.setSelectionRange(start, end);
+  const lineCount = content.value.slice(0, start).split("\n").length - 1;
+  const styles = getComputedStyle(element);
+  const lineHeight =
+    Number.parseFloat(styles.lineHeight) ||
+    Number.parseFloat(styles.fontSize) * 1.45;
+  element.scrollTop = Math.max(
+    0,
+    lineCount * lineHeight - element.clientHeight / 2,
+  );
+}
+
 function isWysiwygMode() {
   return false;
 }
@@ -431,9 +457,16 @@ onMounted(async () => {
   await nextTick();
   resizeTextarea();
   textarea.value?.focus();
+  emit("ready");
 });
 
-defineExpose({ focusEditor, getContent, isWysiwygMode });
+defineExpose({
+  focusEditor,
+  getContent,
+  getSearchText,
+  isWysiwygMode,
+  selectSearchRange,
+});
 </script>
 
 <style lang="scss" scoped>

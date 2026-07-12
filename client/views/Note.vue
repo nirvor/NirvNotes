@@ -43,6 +43,7 @@
     :class="[
       'flatnotes-note-shell flex h-full min-w-0 max-w-full flex-col',
       {
+        'flatnotes-document-find-open': findVisible,
         'flatnotes-note-shell-wide': isWideDashboardNote,
         'flatnotes-note-shell-work': noteLayoutKind === 'work',
         'flatnotes-note-shell-research': noteLayoutKind === 'research',
@@ -50,6 +51,17 @@
       },
     ]"
   >
+    <DocumentFindBar
+      v-if="findVisible"
+      ref="findBar"
+      v-model="findQuery"
+      :current="findCurrent"
+      :total="findTotal"
+      @previous="findMove(-1)"
+      @next="findMove(1)"
+      @close="closeFind"
+    />
+
     <!-- Header -->
     <div class="min-w-0 max-w-full">
       <!-- Title -->
@@ -73,6 +85,7 @@
 
     <!-- Content -->
     <div
+      ref="noteContent"
       class="flatnotes-note-content min-w-0 max-w-full flex-1"
       @dblclick="noteContentDblClickHandler"
       @pointerup="noteContentPointerUpHandler"
@@ -109,8 +122,9 @@
         :session-key="`cloud:${newTitle || note.title || 'new'}`"
         :aria-label="`Edit ${newTitle || note.title || 'note'}`"
         :addImageBlobHook="addImageBlobHook"
-        @change="startContentChangedTimeout"
+        @change="editorContentChangedHandler"
         @keydown="keydownHandler"
+        @ready="editorReadyHandler"
       />
       <WorkNoteEditor
         v-if="editMode && editorFormat === 'html' && editorKind === 'work'"
@@ -121,8 +135,9 @@
         :note-title="newTitle"
         :addImageBlobHook="addImageBlobHook"
         :show-kind-switch="isNewNote"
-        @change="startContentChangedTimeout"
+        @change="editorContentChangedHandler"
         @keydown="keydownHandler"
+        @ready="editorReadyHandler"
         @set-kind="setNewNoteKind"
       />
       <HtmlEditor
@@ -133,8 +148,9 @@
         :initialValue="getInitialEditorValue()"
         :addImageBlobHook="addImageBlobHook"
         :show-kind-switch="isNewNote"
-        @change="startContentChangedTimeout"
+        @change="editorContentChangedHandler"
         @keydown="keydownHandler"
+        @ready="editorReadyHandler"
         @set-kind="setNewNoteKind"
       />
     </div>
@@ -184,6 +200,7 @@ import {
 } from "../api.js";
 import { Note } from "../classes.js";
 import ConfirmModal from "../components/ConfirmModal.vue";
+import DocumentFindBar from "../components/DocumentFindBar.vue";
 import LoadingIndicator from "../components/LoadingIndicator.vue";
 import {
   buildWorkNoteHtml,
@@ -193,6 +210,7 @@ import {
 import { authTypes } from "../constants.js";
 import { useDocumentSession } from "../documents/documentSession.js";
 import { createVpsNoteStorageAdapter } from "../documents/storageAdapters.js";
+import { useDocumentFind } from "../documentFind.js";
 import { useGlobalStore } from "../globalStore.js";
 import { getToastOptions } from "../helpers.js";
 import { isCurrentTokenStored } from "../tokenStorage.js";
@@ -267,6 +285,7 @@ const isDraftModalVisible = ref(false);
 const isNewNote = computed(() => !props.title);
 const loadingIndicator = ref();
 const note = ref({});
+const noteContent = ref();
 const pinBusy = ref(false);
 const isPinned = computed(() =>
   documentHasSystemTag(
@@ -313,6 +332,23 @@ const editMode = documentSession.editMode;
 const unsavedChanges = documentSession.dirty;
 const noteContentDblClickHandler = documentSession.contentDblClickHandler;
 const noteContentPointerUpHandler = documentSession.contentPointerUpHandler;
+const {
+  close: closeFind,
+  contentChanged: documentFindContentChanged,
+  current: findCurrent,
+  findBar,
+  move: findMove,
+  query: findQuery,
+  refresh: refreshDocumentFind,
+  total: findTotal,
+  visible: findVisible,
+} = useDocumentFind({
+  isEditing: () => editMode.value,
+  getEditorText: () => contentEditor.value?.getSearchText?.() || "",
+  selectEditorRange: (from, to) =>
+    contentEditor.value?.selectSearchRange?.(from, to),
+  getViewRoot: () => noteContent.value,
+});
 
 function init() {
   // Return if we already have the note e.g. When we rename a note, the route prop would change but we’d already have the note.
@@ -787,6 +823,21 @@ function startContentChangedTimeout() {
   contentChangedTimeout = setTimeout(contentChangedHandler, 1000);
 }
 
+function editorContentChangedHandler() {
+  startContentChangedTimeout();
+  documentFindContentChanged();
+}
+
+function editorReadyHandler() {
+  if (!findVisible.value) {
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    refreshDocumentFind();
+    nextTick(() => findBar.value?.focusSelect?.());
+  });
+}
+
 function clearContentChangedTimeout() {
   if (contentChangedTimeout != null) {
     clearTimeout(contentChangedTimeout);
@@ -1181,7 +1232,23 @@ function getEditorContent() {
 }
 
 watchEffect(updateNoteActions);
-watch(() => props.title, init);
+watch(
+  () => props.title,
+  () => {
+    closeFind({ restoreFocus: false });
+    init();
+  },
+);
+watch(editMode, () => {
+  if (findVisible.value) {
+    nextTick(refreshDocumentFind);
+  }
+});
+watch(contentEditor, () => {
+  if (findVisible.value && contentEditor.value) {
+    nextTick(refreshDocumentFind);
+  }
+});
 watch(newTitle, () => {
   if (editMode.value) {
     startContentChangedTimeout();

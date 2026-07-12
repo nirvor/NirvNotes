@@ -1,9 +1,23 @@
 <template>
   <section
-    class="flatnotes-open-file min-w-0 max-w-full"
+    :class="[
+      'flatnotes-open-file min-w-0 max-w-full',
+      { 'flatnotes-document-find-open': findVisible },
+    ]"
     @dblclick="openFileDblClickHandler"
     @pointerup="openFilePointerUpHandler"
   >
+    <DocumentFindBar
+      v-if="findVisible"
+      ref="findBar"
+      v-model="findQuery"
+      :current="findCurrent"
+      :total="findTotal"
+      @previous="findMove(-1)"
+      @next="findMove(1)"
+      @close="closeFind"
+    />
+
     <div class="flatnotes-open-file-heading">
       <div class="min-w-0">
         <div class="flatnotes-open-file-kicker-line">
@@ -109,33 +123,35 @@
       </button>
     </div>
 
-    <SourceEditor
-      v-if="activeFile && editMode"
-      ref="editorTextarea"
-      v-model="activeFile.draftContent"
-      :language="editorLanguage"
-      :wrap="editorWrap"
-      :session-key="editorSessionKey"
-      :aria-label="`Edit ${activeFile.name}`"
-      @change="markActiveFileDirty"
-      @keydown="documentKeydownHandler"
-      @ready="reportEditorReady"
-    />
+    <div ref="openFileContent" class="flatnotes-open-file-content">
+      <SourceEditor
+        v-if="activeFile && editMode"
+        ref="editorTextarea"
+        v-model="activeFile.draftContent"
+        :language="editorLanguage"
+        :wrap="editorWrap"
+        :session-key="editorSessionKey"
+        :aria-label="`Edit ${activeFile.name}`"
+        @change="activeFileChangedHandler"
+        @keydown="documentKeydownHandler"
+        @ready="openFileEditorReadyHandler"
+      />
 
-    <pre
-      v-else-if="activeFile && activeFile.previewMode === 'plain'"
-      class="flatnotes-open-file-plain-preview"
-      >{{ activeFile.draftContent }}</pre
-    >
+      <pre
+        v-else-if="activeFile && activeFile.previewMode === 'plain'"
+        class="flatnotes-open-file-plain-preview"
+        >{{ activeFile.draftContent }}</pre
+      >
 
-    <ToastViewer
-      v-else-if="activeFile"
-      :key="`${activeFile.key}:${activeFile.previewRevision}`"
-      :initialValue="activeFile.previewMarkdown"
-      :enhance-note-lead="false"
-      :note-title="noteTitleForFile(activeFile)"
-      class="toast-viewer min-w-0 max-w-full pb-4"
-    />
+      <ToastViewer
+        v-else-if="activeFile"
+        :key="`${activeFile.key}:${activeFile.previewRevision}`"
+        :initialValue="activeFile.previewMarkdown"
+        :enhance-note-lead="false"
+        :note-title="noteTitleForFile(activeFile)"
+        class="toast-viewer min-w-0 max-w-full pb-4"
+      />
+    </div>
 
     <div
       v-if="!activeFile"
@@ -224,7 +240,9 @@ import { useRouter } from "vue-router";
 import { useToast } from "primevue/usetoast";
 
 import { apiErrorHandler, createNote } from "../api.js";
+import DocumentFindBar from "../components/DocumentFindBar.vue";
 import IconLabel from "../components/IconLabel.vue";
+import { useDocumentFind } from "../documentFind.js";
 import { useDocumentSession } from "../documents/documentSession.js";
 import { createLocalFileStorageAdapter } from "../documents/storageAdapters.js";
 import {
@@ -248,6 +266,7 @@ const SourceEditor = defineAsyncComponent(
 );
 
 const editorTextarea = ref();
+const openFileContent = ref();
 const fileInput = ref();
 const files = ref([]);
 const activeKey = ref(null);
@@ -287,6 +306,26 @@ const editMode = documentSession.editMode;
 const copied = documentSession.copied;
 const openFileDblClickHandler = documentSession.contentDblClickHandler;
 const openFilePointerUpHandler = documentSession.contentPointerUpHandler;
+const {
+  close: closeFind,
+  contentChanged: documentFindContentChanged,
+  current: findCurrent,
+  findBar,
+  move: findMove,
+  query: findQuery,
+  refresh: refreshDocumentFind,
+  total: findTotal,
+  visible: findVisible,
+} = useDocumentFind({
+  isEditing: () => editMode.value,
+  getEditorText: () =>
+    editorTextarea.value?.getSearchText?.() ||
+    activeFile.value?.draftContent ||
+    "",
+  selectEditorRange: (from, to) =>
+    editorTextarea.value?.selectSearchRange?.(from, to),
+  getViewRoot: () => openFileContent.value,
+});
 const canSaveActiveFile = computed(
   () =>
     Boolean(activeFile.value?.handle) &&
@@ -349,6 +388,16 @@ onMounted(() => {
 });
 
 watch(externalFileLaunch, consumeExternalLaunch, { immediate: true });
+watch(editMode, () => {
+  if (findVisible.value) {
+    nextTick(refreshDocumentFind);
+  }
+});
+watch(editorTextarea, () => {
+  if (findVisible.value && editorTextarea.value) {
+    nextTick(refreshDocumentFind);
+  }
+});
 watchEffect(updateOpenFileActions);
 watchEffect(persistDesktopFiles);
 
@@ -517,6 +566,8 @@ function closeExternalFile() {
     return;
   }
 
+  closeFind({ restoreFocus: false });
+
   files.value.forEach((file) => {
     documentSession.clearDraft(file.draftStorageKey);
   });
@@ -534,6 +585,7 @@ function activateFile(key) {
   if (key === activeKey.value) {
     return;
   }
+  closeFind({ restoreFocus: false });
   saveActiveScroll();
   documentSession.leaveEdit();
   activeKey.value = key;
@@ -553,6 +605,7 @@ async function fileInputChanged(event) {
 }
 
 async function loadFiles(selectedFiles, message) {
+  closeFind({ restoreFocus: false });
   saveActiveScroll();
   const readableFiles = [];
   for (const selectedFile of selectedFiles) {
@@ -809,6 +862,22 @@ function markActiveFileDirty() {
   } else {
     documentSession.clearDraft();
   }
+}
+
+function activeFileChangedHandler() {
+  markActiveFileDirty();
+  documentFindContentChanged();
+}
+
+function openFileEditorReadyHandler() {
+  reportEditorReady();
+  if (!findVisible.value) {
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    refreshDocumentFind();
+    nextTick(() => findBar.value?.focusSelect?.());
+  });
 }
 
 function refreshPreview(file) {

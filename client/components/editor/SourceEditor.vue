@@ -429,6 +429,23 @@ function getValue() {
   return editorView?.state.doc.toString() || initialContent();
 }
 
+function getSearchText() {
+  return getValue();
+}
+
+function selectSearchRange(from, to) {
+  if (!editorView) {
+    return;
+  }
+  const length = editorView.state.doc.length;
+  const start = Math.max(0, Math.min(Number(from) || 0, length));
+  const end = Math.max(start, Math.min(Number(to) || start, length));
+  editorView.dispatch({
+    selection: { anchor: start, head: end },
+    effects: EditorView.scrollIntoView(start, { y: "center" }),
+  });
+}
+
 function getMarkdown() {
   const content = getValue();
   return props.normalizeTags
@@ -499,7 +516,14 @@ onBeforeUnmount(() => {
   editorView = null;
 });
 
-defineExpose({ focusEditor, getMarkdown, getValue, isWysiwygMode });
+defineExpose({
+  focusEditor,
+  getMarkdown,
+  getSearchText,
+  getValue,
+  isWysiwygMode,
+  selectSearchRange,
+});
 </script>
 
 <style scoped>
