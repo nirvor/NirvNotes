@@ -42,7 +42,7 @@ from ..models import (
 HTML_EXT = ".html"
 LEGACY_MARKDOWN_EXT = ".md"
 NOTE_EXTENSIONS = (HTML_EXT, LEGACY_MARKDOWN_EXT)
-INDEX_SCHEMA_VERSION = "6"
+INDEX_SCHEMA_VERSION = "7"
 
 StemmingFoldingAnalyzer = StemmingAnalyzer() | CharsetFilter(accent_map)
 
@@ -95,11 +95,17 @@ class NoteHtmlParser(HTMLParser):
         "ul",
     }
     SKIP_TAGS = {"script", "style", "template"}
+    TAG_CONTAINER_TAGS = {"div", "p"}
+    TAG_ONLY_RE = re.compile(
+        r"^#[a-zA-Z0-9_-]+(?:\s+#[a-zA-Z0-9_-]+)*$"
+    )
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.parts: List[str] = []
         self.meta_tags: Set[str] = set()
+        self.visible_tags: Set[str] = set()
+        self.tag_candidates: List[dict] = []
         self.skip_depth = 0
 
     def handle_starttag(self, tag, attrs):
@@ -120,6 +126,9 @@ class NoteHtmlParser(HTMLParser):
             if alt_text:
                 self.parts.append(f" {alt_text} ")
 
+        if tag in self.TAG_CONTAINER_TAGS:
+            self.tag_candidates.append({"tag": tag, "parts": []})
+
         if tag in self.BLOCK_TAGS:
             self.parts.append(" ")
 
@@ -128,6 +137,19 @@ class NoteHtmlParser(HTMLParser):
         if tag in self.SKIP_TAGS and self.skip_depth:
             self.skip_depth -= 1
             return
+
+        if tag in self.TAG_CONTAINER_TAGS:
+            for index in range(len(self.tag_candidates) - 1, -1, -1):
+                candidate = self.tag_candidates[index]
+                if candidate["tag"] != tag:
+                    continue
+                self.tag_candidates.pop(index)
+                text = re.sub(r"\s+", " ", " ".join(candidate["parts"])).strip()
+                if self.TAG_ONLY_RE.fullmatch(text):
+                    self.visible_tags.update(
+                        FileSystemNotes._split_tag_list(text)
+                    )
+                break
 
         if tag in self.BLOCK_TAGS:
             self.parts.append(" ")
@@ -138,6 +160,8 @@ class NoteHtmlParser(HTMLParser):
 
         if data.strip():
             self.parts.append(data)
+            for candidate in self.tag_candidates:
+                candidate["parts"].append(data)
 
     @property
     def text(self) -> str:
@@ -662,11 +686,13 @@ class FileSystemNotes(BaseNotes):
         }
 
     @classmethod
-    def _html_to_text_and_meta_tags(cls, content: str) -> Tuple[str, Set[str]]:
+    def _html_to_text_and_meta_tags(
+        cls, content: str
+    ) -> Tuple[str, Set[str], Set[str]]:
         parser = NoteHtmlParser()
         parser.feed(content or "")
         parser.close()
-        return (parser.text, parser.meta_tags)
+        return (parser.text, parser.meta_tags, parser.visible_tags)
 
     @classmethod
     def _extract_tags(cls, content: str) -> Tuple[str, Set[str]]:
@@ -674,9 +700,15 @@ class FileSystemNotes(BaseNotes):
         meta_tags: Set[str] = set()
         searchable_content = content or ""
         if cls._looks_like_html(searchable_content):
-            searchable_content, meta_tags = cls._html_to_text_and_meta_tags(
-                searchable_content
+            (
+                searchable_content,
+                meta_tags,
+                visible_tags,
+            ) = cls._html_to_text_and_meta_tags(searchable_content)
+            content_ex_tags, _ = cls._re_extract(
+                cls.TAGS_RE, searchable_content
             )
+            return (content_ex_tags, meta_tags.union(visible_tags))
 
         content_ex_codeblock = re.sub(cls.CODEBLOCK_RE, "", searchable_content)
         _, tags = cls._re_extract(cls.TAGS_RE, content_ex_codeblock)
