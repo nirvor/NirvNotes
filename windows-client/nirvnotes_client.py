@@ -503,17 +503,11 @@ class NirvNotesApi:
                 "-Version",
                 status["version"],
             ]
-            creation_flags = 0
-            if sys.platform == "win32":
-                creation_flags = (
-                    subprocess.CREATE_NEW_PROCESS_GROUP
-                    | subprocess.DETACHED_PROCESS
-                    | subprocess.CREATE_NO_WINDOW
-                )
-            subprocess.Popen(
-                command,
-                close_fds=True,
-                creationflags=creation_flags,
+            updater_pid = launch_updater_process(command)
+            logging.info(
+                "client updater started pid=%s version=%s",
+                updater_pid,
+                status["version"],
             )
             threading.Thread(
                 target=self._close_for_update,
@@ -673,6 +667,33 @@ def is_update_available(
             return current_built_at < update_built_at
         return True
     return str(current.get("version", "")) != str(manifest.get("version", ""))
+
+
+def updater_process_creation_flags(platform: str = sys.platform) -> int:
+    if platform != "win32":
+        return 0
+
+    # DETACHED_PROCESS combined with CREATE_NO_WINDOW prevents powershell.exe
+    # from running the update script on Windows 11.
+    return subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+
+
+def launch_updater_process(command: list[str]) -> int:
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        creationflags=updater_process_creation_flags(),
+    )
+    time.sleep(0.2)
+    return_code = process.poll()
+    if return_code is not None:
+        raise OSError(
+            f"The NirvNotes updater exited before handoff (code {return_code})."
+        )
+    return int(process.pid)
 
 
 def parse_iso_datetime(value: Any) -> datetime | None:

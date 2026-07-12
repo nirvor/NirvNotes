@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -10,6 +12,7 @@ from nirvnotes_client import (
     ALLOWED_EXTENSIONS,
     NativeFileStore,
     start_local_proxy,
+    updater_process_creation_flags,
 )
 
 
@@ -124,6 +127,16 @@ class LocalProxyTests(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+
+class ClientUpdaterTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "win32", "Windows process flags only")
+    def test_updater_flags_do_not_combine_detached_and_no_window(self) -> None:
+        flags = updater_process_creation_flags()
+
+        self.assertTrue(flags & subprocess.CREATE_NEW_PROCESS_GROUP)
+        self.assertTrue(flags & subprocess.CREATE_NO_WINDOW)
+        self.assertFalse(flags & subprocess.DETACHED_PROCESS)
 
 
 if __name__ == "__main__":
