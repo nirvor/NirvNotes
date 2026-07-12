@@ -38,7 +38,11 @@ class HtmlTagExtractionTests(unittest.TestCase):
         content = """<!doctype html>
 <html>
   <head><meta name="flatnotes-tags" content="private,pinned,robotics"></head>
-  <body><article><p>#private #nirv-bot</p></article></body>
+  <body><article>
+    <footer class="tags" data-flatnotes-component="tags">
+      <span>#private</span><span>#nirv-bot</span>
+    </footer>
+  </article></body>
 </html>"""
 
         _, tags = FileSystemNotes._extract_tags(content)

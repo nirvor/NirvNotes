@@ -8,7 +8,7 @@ import {
 import { isSystemTag, normalizeSystemTag } from "./systemTags.js";
 
 const metaTagPattern = /<meta\b[^>]*>/gi;
-const tagOnlyElementPattern = /<(p|div)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
+const tagOnlyElementPattern = /<(p|div|footer)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
 const tagOnlyTextPattern = /^#[a-zA-Z0-9_-]+(?:\s+#[a-zA-Z0-9_-]+)*$/;
 
 function normalizeTag(tag = "") {

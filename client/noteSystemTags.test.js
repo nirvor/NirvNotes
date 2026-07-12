@@ -56,7 +56,9 @@ test("legacy markdown can still be pinned", () => {
 test("visible HTML tags replace stale non-system metadata on save", () => {
   const stale = `<!doctype html>
 <html><head><meta name="flatnotes-tags" content="private,pinned,robotics"></head>
-<body><article><p>#private #nirv-bot</p></article></body></html>`;
+<body><article><footer class="tags" data-flatnotes-component="tags">
+  <span>#private</span><span>#nirv-bot</span>
+</footer></article></body></html>`;
 
   const synchronized = synchronizeDocumentTags({
     content: stale,

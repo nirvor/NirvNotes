@@ -96,7 +96,7 @@ class NoteHtmlParser(HTMLParser):
         "ul",
     }
     SKIP_TAGS = {"script", "style", "template"}
-    TAG_CONTAINER_TAGS = {"div", "p"}
+    TAG_CONTAINER_TAGS = {"div", "footer", "p"}
     TAG_ONLY_RE = re.compile(
         r"^#[a-zA-Z0-9_-]+(?:\s+#[a-zA-Z0-9_-]+)*$"
     )
