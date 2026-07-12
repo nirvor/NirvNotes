@@ -6,7 +6,11 @@ import unittest
 from pathlib import Path
 from urllib import error, request
 
-from nirvnotes_client import NativeFileStore, start_local_proxy
+from nirvnotes_client import (
+    ALLOWED_EXTENSIONS,
+    NativeFileStore,
+    start_local_proxy,
+)
 
 
 class NativeFileStoreTests(unittest.TestCase):
@@ -79,6 +83,17 @@ class NativeFileStoreTests(unittest.TestCase):
         path.unlink()
         deleted = self._wait_for_change(payload["id"])
         self.assertTrue(deleted["deleted"])
+
+    def test_structured_text_formats_are_opened_as_raw_source(self) -> None:
+        path = self.root / "service.yaml"
+        path.write_text("enabled: true\n", encoding="utf-8")
+
+        payload = self.store.payloads_for_paths([str(path)])[0]
+
+        self.assertIn(".yaml", ALLOWED_EXTENSIONS)
+        self.assertEqual(payload["extension"], "yaml")
+        self.assertEqual(payload["type"], "application/yaml")
+        self.assertEqual(payload["content"], "enabled: true\n")
 
     def _wait_for_change(self, file_id: str) -> dict:
         deadline = time.monotonic() + 3

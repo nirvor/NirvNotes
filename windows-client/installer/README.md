@@ -18,7 +18,7 @@ The installer copies the app to:
 ```
 
 It also creates Start Menu and Desktop shortcuts, registers NirvNotes as an
-Open With app for `.md`, `.txt`, `.cfg`, and `.ini`, and adds a normal Windows
+Open With app for the supported text and configuration formats, and adds a normal Windows
 uninstaller entry.
 
 This installer is required once for the updater-capable client. Future releases
@@ -36,7 +36,7 @@ https://racknerd-31fcf0d.tail38b5b3.ts.net:8092
 
 On a fresh Win11 Mini-PC or laptop, install and log in to Tailscale for cloud
 notes. The installer performs a small connectivity check but does not fail when
-the machine is offline. Local `.md`, `.txt`, `.cfg`, and `.ini` files remain
+the machine is offline. Local text and configuration files remain
 available without the VPS.
 
 ## Command-line install

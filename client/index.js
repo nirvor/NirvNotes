@@ -22,6 +22,8 @@ import router from "/router.js";
 const app = createApp(App);
 const pinia = createPinia();
 
+loadStoredToken();
+
 app.use(router);
 app.use(pinia);
 app.use(PrimeVue, { unstyled: true });
@@ -33,8 +35,6 @@ app.directive("focus", {
     el.focus();
   },
 });
-
-loadStoredToken();
 
 app.mount("#app");
 

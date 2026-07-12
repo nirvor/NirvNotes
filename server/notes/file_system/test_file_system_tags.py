@@ -1,6 +1,8 @@
 import unittest
+from unittest.mock import patch
 
 from notes.file_system.file_system import FileSystemNotes
+from notes.models import Note
 
 
 class HtmlTagExtractionTests(unittest.TestCase):
@@ -31,6 +33,32 @@ class HtmlTagExtractionTests(unittest.TestCase):
         _, tags = FileSystemNotes._extract_tags(content)
 
         self.assertEqual(tags, {"private", "pinned"})
+
+
+class LiveTagTests(unittest.TestCase):
+    def test_get_tags_only_returns_tags_from_existing_notes(self):
+        notes = object.__new__(FileSystemNotes)
+        notes._list_all_note_filenames = lambda: ["current.html"]
+        notes._get_by_filename = lambda _: Note(
+            title="current",
+            content='<meta name="flatnotes-tags" content="work,current">',
+            last_modified=1,
+            format="html",
+        )
+
+        self.assertEqual(notes.get_tags(), ["current", "work"])
+
+    def test_delete_optimizes_index_after_removing_note(self):
+        notes = object.__new__(FileSystemNotes)
+        notes._existing_path_from_title = lambda _: "deleted.html"
+        sync_calls = []
+        notes._sync_index_with_retry = lambda **kwargs: sync_calls.append(kwargs)
+
+        with patch("notes.file_system.file_system.os.remove") as remove:
+            notes.delete("deleted")
+
+        remove.assert_called_once_with("deleted.html")
+        self.assertEqual(sync_calls, [{"optimize": True}])
 
     def test_pinned_metadata_remains_a_system_tag(self):
         content = """<html>

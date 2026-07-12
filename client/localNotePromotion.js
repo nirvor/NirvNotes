@@ -32,14 +32,19 @@ function sourceMarkdown(file = {}) {
     return content;
   }
 
-  const language = extension === "cfg" ? "ini" : extension || "text";
+  const languageAliases = {
+    cfg: "ini",
+    log: "text",
+    yml: "yaml",
+  };
+  const language = languageAliases[extension] || extension || "text";
   const fence = "`".repeat(Math.max(3, maxBacktickRun(content) + 1));
   return `${fence}${language}\n${content}\n${fence}\n`;
 }
 
 export function localFileNoteTitle(filename = "") {
   const withoutExtension = String(filename).replace(
-    /\.(?:md|txt|cfg|ini)$/i,
+    /\.(?:md|txt|cfg|ini|json|ya?ml|toml|xml|log)$/i,
     "",
   );
   return (

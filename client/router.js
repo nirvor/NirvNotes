@@ -2,7 +2,9 @@ import * as constants from "./constants.js";
 
 import { createRouter, createWebHistory } from "vue-router";
 
-import { authCheck } from "./api.js";
+import { authCheck, clearApiCaches } from "./api.js";
+import { desktopShell } from "./desktopShell.js";
+import { clearStoredToken, getStoredToken } from "./tokenStorage.js";
 
 const loadHomeView = () => import("./views/Home.vue");
 const loadNoteView = () => import("./views/Note.vue");
@@ -80,6 +82,20 @@ function prefetchHomeViews() {
 
 router.beforeEach(async (to) => {
   if (authChecked || to.name === "login") {
+    return;
+  }
+  if (desktopShell.enabled && getStoredToken()) {
+    authChecked = true;
+    void authCheck().catch((error) => {
+      if (error.response?.status === 401) {
+        clearApiCaches();
+        clearStoredToken();
+        void router.replace({
+          name: "login",
+          query: { [constants.params.redirect]: to.fullPath },
+        });
+      }
+    });
     return;
   }
   try {

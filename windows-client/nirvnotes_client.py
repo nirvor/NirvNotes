@@ -44,12 +44,29 @@ UPDATE_STATUS_TTL_SECONDS = 10 * 60
 UPDATE_MANIFEST_PATH = "/api/windows-client-update"
 CLIENT_METADATA_FILE = "client-version.json"
 UPDATE_SCRIPT_FILE = "apply-update.ps1"
-ALLOWED_EXTENSIONS = {".md", ".txt", ".cfg", ".ini"}
+ALLOWED_EXTENSIONS = {
+    ".md",
+    ".txt",
+    ".cfg",
+    ".ini",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".xml",
+    ".log",
+}
 TEXT_TYPES = {
     ".md": "text/markdown",
     ".txt": "text/plain",
     ".cfg": "text/plain",
     ".ini": "text/plain",
+    ".json": "application/json",
+    ".yaml": "application/yaml",
+    ".yml": "application/yaml",
+    ".toml": "application/toml",
+    ".xml": "application/xml",
+    ".log": "text/plain",
 }
 HOP_BY_HOP_HEADERS = {
     "connection",
@@ -298,7 +315,9 @@ class NirvNotesApi:
         paths = self._window.create_file_dialog(
             webview.OPEN_DIALOG,
             allow_multiple=True,
-            file_types=("Text and Markdown (*.md;*.txt;*.cfg;*.ini)",),
+            file_types=(
+                "Text and config (*.md;*.txt;*.cfg;*.ini;*.json;*.yaml;*.yml;*.toml;*.xml;*.log)",
+            ),
         )
         return self._file_store.payloads_for_paths(list(paths or []))
 

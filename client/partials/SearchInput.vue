@@ -43,23 +43,19 @@
     </div>
 
     <!-- Empty Search Tag Cloud -->
-    <div v-if="tagCloudVisible" class="mt-2 w-full px-1">
-      <div class="flex flex-wrap gap-1.5">
+    <div v-if="tagCloudVisible" class="flatnotes-tag-cloud">
+      <div class="flatnotes-tag-cloud-list">
         <button
           v-for="tag in topTags"
           :key="tag.name"
           type="button"
-          class="inline-flex items-center gap-1 rounded-full border border-theme-border/80 bg-theme-background-elevated/60 px-2.5 py-1 text-[0.8rem] leading-none text-theme-text-muted shadow-sm transition hover:border-theme-brand hover:bg-theme-background-elevated hover:text-theme-text focus-visible:border-theme-brand focus-visible:outline-none dark:bg-theme-background-elevated/45"
+          class="flatnotes-tag-cloud-item"
+          :title="`${tag.count} ${tag.count === 1 ? 'note' : 'notes'}`"
           @click="tagCloudChosen(tag.name)"
           @mousedown.prevent
         >
-          <IconLabel :iconPath="mdiTag" iconSize="0.8em" />
+          <IconLabel :iconPath="mdiTag" iconSize="0.76em" />
           <span>{{ tag.name }}</span>
-          <span
-            v-if="tag.count > 0"
-            class="ml-0.5 rounded-full bg-theme-background-elevated px-1.5 py-0.5 text-[0.68rem] text-theme-text-very-muted dark:bg-theme-background"
-            >{{ tag.count }}</span
-          >
         </button>
       </div>
     </div>
@@ -73,7 +69,11 @@ import { useToast } from "primevue/usetoast";
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
-import { apiErrorHandler, getSemanticIndex, getTags } from "../api.js";
+import {
+  apiErrorHandler,
+  getSemanticIndex,
+  libraryIndexUpdatedEvent,
+} from "../api.js";
 import { isCloudNetworkError } from "../desktopShell.js";
 import IconLabel from "../components/IconLabel.vue";
 import * as constants from "../constants.js";
@@ -97,7 +97,7 @@ const input = ref();
 const router = useRouter();
 const searchTerm = ref(searchTermForInput(props.initialSearchTerm));
 const toast = useToast();
-let tags = null;
+let tags = [];
 let tagCloudEntries = [];
 const tagMatches = ref([]);
 const tagMenuItems = ref([]);
@@ -257,44 +257,40 @@ function stateChangeHandler() {
 async function showTagCloud() {
   if (!tagCloudLoaded) {
     try {
-      const [index, indexedTags] = await Promise.all([
-        getSemanticIndex(),
-        getTags().catch(() => []),
-      ]);
-      const counts = new Map();
-      const tagNames = new Set();
-      index.forEach((note) => {
-        new Set(note.tags || []).forEach((tag) => {
-          const normalizedTag = normalizeTagName(tag);
-          if (!normalizedTag || isSystemTag(normalizedTag)) {
-            return;
-          }
-          tagNames.add(normalizedTag);
-          counts.set(normalizedTag, (counts.get(normalizedTag) || 0) + 1);
-        });
-      });
-      indexedTags.forEach((tag) => {
-        const normalizedTag = normalizeTagName(tag);
-        if (normalizedTag && !isSystemTag(normalizedTag)) {
-          tagNames.add(normalizedTag);
-        }
-      });
-      tagCloudEntries = [...tagNames].map((name) => ({
-        name,
-        count: counts.get(name) || 0,
-      }));
-      rebuildTopTags();
+      applySemanticIndex(await getSemanticIndex());
     } catch (error) {
       topTags.value = [];
       if (!isCloudNetworkError(error)) {
         apiErrorHandler(error, toast);
       }
     }
-    tagCloudLoaded = true;
   }
 
   rebuildTopTags();
   tagCloudVisible.value = topTags.value.length > 0;
+}
+
+function applySemanticIndex(index) {
+  const counts = new Map();
+  (Array.isArray(index) ? index : []).forEach((note) => {
+    new Set(note.tags || []).forEach((tag) => {
+      const normalizedTag = normalizeTagName(tag);
+      if (!normalizedTag || isSystemTag(normalizedTag)) {
+        return;
+      }
+      counts.set(normalizedTag, (counts.get(normalizedTag) || 0) + 1);
+    });
+  });
+  tagCloudEntries = [...counts.entries()].map(([name, count]) => ({
+    name,
+    count,
+  }));
+  tags = tagCloudEntries.map((tag) => `#${tag.name}`);
+  tagCloudLoaded = true;
+  rebuildTopTags();
+  if (!searchTerm.value.trim()) {
+    tagCloudVisible.value = topTags.value.length > 0;
+  }
 }
 
 function rebuildTopTags() {
@@ -328,16 +324,15 @@ function rebuildTopTags() {
 }
 
 async function filterTagMatches(input) {
-  if (tags === null) {
+  if (!tagCloudLoaded) {
     try {
-      tags = await getTags();
+      applySemanticIndex(await getSemanticIndex());
     } catch (error) {
       tags = [];
       if (!isCloudNetworkError(error)) {
         apiErrorHandler(error, toast);
       }
     }
-    tags = tags.filter((tag) => !isSystemTag(tag)).map((tag) => `#${tag}`);
   }
   const currentTagMatchCount = tagMatches.value.length;
   tagMatches.value = tags.filter(
@@ -409,11 +404,68 @@ const stopTagUsageListener = onTagUsageChange(() => {
   }
 });
 
+function semanticIndexUpdatedHandler(event) {
+  applySemanticIndex(event.detail);
+}
+
 onMounted(() => {
+  window.addEventListener(
+    libraryIndexUpdatedEvent,
+    semanticIndexUpdatedHandler,
+  );
   if (!searchTerm.value.trim()) {
     showTagCloud();
   }
 });
 
-onBeforeUnmount(stopTagUsageListener);
+onBeforeUnmount(() => {
+  stopTagUsageListener();
+  window.removeEventListener(
+    libraryIndexUpdatedEvent,
+    semanticIndexUpdatedHandler,
+  );
+});
 </script>
+
+<style scoped>
+.flatnotes-tag-cloud {
+  width: 100%;
+  padding: 0.42rem 0.15rem 0;
+}
+
+.flatnotes-tag-cloud-list {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.9rem;
+  row-gap: 0.18rem;
+}
+
+.flatnotes-tag-cloud-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  border: 0;
+  padding: 0.2rem 0;
+  color: rgb(var(--theme-text-muted));
+  background: transparent;
+  font-size: 0.78rem;
+  line-height: 1.15;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.flatnotes-tag-cloud-item :deep(svg) {
+  color: rgb(var(--theme-text-very-muted));
+}
+
+.flatnotes-tag-cloud-item:hover,
+.flatnotes-tag-cloud-item:focus-visible {
+  color: rgb(var(--theme-brand));
+  outline: none;
+}
+
+.flatnotes-tag-cloud-item:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+</style>

@@ -34,3 +34,15 @@ test("plain text snapshots use a collision-safe code fence", () => {
   assert.match(note.content, /alpha/);
   assert.match(note.content, /```/);
 });
+
+test("structured config snapshots keep a useful language and clean title", () => {
+  const note = buildLocalLibraryNote({
+    name: "service-config.yml",
+    extension: "yml",
+    draftContent: "enabled: true\n",
+  });
+
+  assert.equal(localFileNoteTitle("service-config.yml"), "service-config");
+  assert.match(note.content, /<pre><code class="language-yaml">/);
+  assert.match(note.content, /enabled: true/);
+});

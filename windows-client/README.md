@@ -35,8 +35,8 @@ windows-client\dist\NirvNotes\NirvNotes.exe
 powershell -ExecutionPolicy Bypass -File windows-client\install-file-associations.ps1 -ExePath windows-client\dist\NirvNotes\NirvNotes.exe
 ```
 
-Windows 11 may still require one manual default-app confirmation for `.md`,
-`.txt`, `.cfg`, and `.ini`. That is normal; the script registers the app cleanly
+Windows 11 may still require one manual default-app confirmation for a newly
+associated text/config format. That is normal; the script registers the app cleanly
 but does not fight Windows UserChoice protection.
 
 ## Behavior
@@ -46,7 +46,8 @@ but does not fight Windows UserChoice protection.
 - Keeps the shell and local file editor usable while the VPS is offline.
 - Uses persistent WebView2 storage under `%LOCALAPPDATA%\NirvNotes\WebView2`.
 - Writes startup diagnostics to `%LOCALAPPDATA%\NirvNotes\logs`.
-- Opens `.md`, `.txt`, `.cfg`, and `.ini` from Windows or the native menu.
+- Opens `.md`, `.txt`, `.cfg`, `.ini`, `.json`, `.yaml/.yml`, `.toml`, `.xml`,
+  and `.log` from Windows or the native menu.
 - Uses one compact CodeMirror editor with line numbers, syntax color, search,
   keyboard undo/redo, and exact raw-source copy.
 - Preserves UTF-8 BOM, Windows-1252, LF/CRLF, cursor, scroll, open files, edit

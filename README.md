@@ -11,7 +11,8 @@ calm dark interface.
 
 ## Current Direction
 
-- Workspace files (`.md`, `.txt`, `.cfg`, `.ini`) are edited in place at their
+- Workspace files (`.md`, `.txt`, `.cfg`, `.ini`, `.json`, `.yaml`, `.yml`,
+  `.toml`, `.xml`, `.log`) are edited in place at their
   original local path.
 - Library notes are durable HTML files in one VPS folder and are organized
   through sparse content tags.

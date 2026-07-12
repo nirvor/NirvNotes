@@ -10,17 +10,39 @@ import {
 } from "./desktopShell.js";
 import { getStoredToken } from "./tokenStorage.js";
 import { getToastOptions } from "./helpers.js";
+import {
+  clearWarmLibraryCache,
+  getWarmConfig,
+  getWarmIndex,
+  getWarmNote,
+  removeWarmIndexTitles,
+  removeWarmNote,
+  setWarmConfig,
+  setWarmIndex,
+  setWarmNote,
+} from "./libraryCache.js";
 import router from "./router.js";
 
 const api = axios.create();
+let configCache = null;
 const noteCache = new Map();
 const searchCache = new Map();
 let semanticIndexCache = null;
 let tagCache = null;
+let configRequest = null;
+let semanticIndexRequest = null;
+let semanticIndexRevalidatedAt = 0;
+const noteRequests = new Map();
+const configCacheTtlMs = 24 * 60 * 60 * 1000;
 const noteCacheTtlMs = 5 * 60 * 1000;
 const searchCacheTtlMs = 30 * 1000;
 const semanticIndexCacheTtlMs = 2 * 60 * 1000;
+const semanticIndexRevalidateCooldownMs = 5000;
 const tagCacheTtlMs = 2 * 60 * 1000;
+
+export const libraryIndexUpdatedEvent = "nirvnotes:library-index-updated";
+export const libraryNoteUpdatedEvent = "nirvnotes:library-note-updated";
+export const libraryNoteDeletedEvent = "nirvnotes:library-note-deleted";
 
 api.interceptors.request.use(
   // If the request is not for the token endpoint, add the token to the headers.
@@ -73,10 +95,12 @@ export function apiErrorHandler(error, toast) {
 }
 
 export function clearApiCaches() {
+  configCache = null;
   noteCache.clear();
   searchCache.clear();
   semanticIndexCache = null;
   tagCache = null;
+  clearWarmLibraryCache();
 }
 
 function clearIndexCaches() {
@@ -85,13 +109,53 @@ function clearIndexCaches() {
   tagCache = null;
 }
 
-export async function getConfig() {
-  try {
-    const response = await api.get("api/config");
-    return response.data;
-  } catch (response) {
-    return Promise.reject(response);
+export function getCachedConfig() {
+  if (configCache?.data) {
+    return { ...configCache.data };
   }
+  const warmConfig = getWarmConfig();
+  if (warmConfig) {
+    configCache = { loadedAt: 0, data: { ...warmConfig } };
+    return { ...warmConfig };
+  }
+  return null;
+}
+
+export async function getConfig({ force = false } = {}) {
+  if (
+    !force &&
+    configCache?.data &&
+    Date.now() - configCache.loadedAt < configCacheTtlMs
+  ) {
+    return { ...configCache.data };
+  }
+
+  if (!force) {
+    const warmConfig = getCachedConfig();
+    if (warmConfig) {
+      void fetchConfig().catch(() => {});
+      return warmConfig;
+    }
+  }
+
+  return fetchConfig();
+}
+
+function fetchConfig() {
+  if (configRequest) {
+    return configRequest;
+  }
+  configRequest = api
+    .get("api/config")
+    .then((response) => {
+      configCache = { loadedAt: Date.now(), data: { ...response.data } };
+      setWarmConfig(response.data);
+      return response.data;
+    })
+    .finally(() => {
+      configRequest = null;
+    });
+  return configRequest;
 }
 
 export async function getToken(username, password, totp) {
@@ -150,6 +214,7 @@ export async function createNote(title, content, format = "html") {
     });
     cacheNote(response.data);
     clearIndexCaches();
+    void getSemanticIndex({ force: true }).catch(() => {});
     return new Note(response.data);
   } catch (response) {
     return Promise.reject(response);
@@ -163,13 +228,14 @@ export async function getNote(title) {
     return new Note({ ...cached.data });
   }
 
-  try {
-    const response = await api.get(`api/notes/${encodeURIComponent(title)}`);
-    cacheNote(response.data);
-    return new Note(response.data);
-  } catch (response) {
-    return Promise.reject(response);
+  const warmNote = getWarmNote(cacheKey);
+  if (warmNote) {
+    noteCache.set(cacheKey, { loadedAt: 0, data: { ...warmNote } });
+    void fetchNote(cacheKey).catch(() => {});
+    return new Note(warmNote);
   }
+
+  return fetchNote(cacheKey);
 }
 
 export async function getNoteContext(title) {
@@ -183,24 +249,41 @@ export async function getNoteContext(title) {
   }
 }
 
-export async function getSemanticIndex() {
+export function getCachedSemanticIndex() {
+  if (semanticIndexCache?.data) {
+    return semanticIndexCache.data.map((note) => ({ ...note }));
+  }
+  const warmIndex = getWarmIndex();
+  if (warmIndex) {
+    semanticIndexCache = { loadedAt: 0, data: cloneIndex(warmIndex) };
+    return cloneIndex(warmIndex);
+  }
+  return [];
+}
+
+export async function getSemanticIndex({ force = false } = {}) {
   if (
+    !force &&
     semanticIndexCache &&
     Date.now() - semanticIndexCache.loadedAt < semanticIndexCacheTtlMs
   ) {
     return semanticIndexCache.data.map((note) => ({ ...note }));
   }
 
-  try {
-    const response = await api.get("api/index");
-    semanticIndexCache = {
-      loadedAt: Date.now(),
-      data: response.data.map((note) => ({ ...note })),
-    };
-    return response.data;
-  } catch (response) {
-    return Promise.reject(response);
+  if (!force) {
+    const warmIndex = getCachedSemanticIndex();
+    if (warmIndex.length) {
+      if (
+        Date.now() - semanticIndexRevalidatedAt >=
+        semanticIndexRevalidateCooldownMs
+      ) {
+        void fetchSemanticIndex().catch(() => {});
+      }
+      return warmIndex;
+    }
   }
+
+  return fetchSemanticIndex();
 }
 
 export async function updateNote(title, newTitle, newContent, format = "html") {
@@ -211,8 +294,11 @@ export async function updateNote(title, newTitle, newContent, format = "html") {
       newFormat: format,
     });
     noteCache.delete(String(title || ""));
+    removeWarmNote(title);
+    removeWarmIndexTitles([title, newTitle]);
     cacheNote(response.data);
     clearIndexCaches();
+    void getSemanticIndex({ force: true }).catch(() => {});
     return new Note(response.data);
   } catch (response) {
     return Promise.reject(response);
@@ -223,7 +309,11 @@ export async function deleteNote(title) {
   try {
     await api.delete(`api/notes/${encodeURIComponent(title)}`);
     noteCache.delete(String(title || ""));
+    removeWarmNote(title);
+    removeWarmIndexTitles(title);
     clearIndexCaches();
+    dispatchLibraryEvent(libraryNoteDeletedEvent, { title: String(title) });
+    void getSemanticIndex({ force: true }).catch(() => {});
   } catch (response) {
     return Promise.reject(response);
   }
@@ -255,6 +345,69 @@ function cacheNote(note) {
     loadedAt: Date.now(),
     data: { ...note },
   });
+  setWarmNote(note);
+}
+
+function fetchNote(title) {
+  const cacheKey = String(title || "");
+  if (noteRequests.has(cacheKey)) {
+    return noteRequests.get(cacheKey);
+  }
+  const request = api
+    .get(`api/notes/${encodeURIComponent(cacheKey)}`)
+    .then((response) => {
+      cacheNote(response.data);
+      dispatchLibraryEvent(libraryNoteUpdatedEvent, { ...response.data });
+      return new Note(response.data);
+    })
+    .catch((error) => {
+      if (error.response?.status === 404) {
+        noteCache.delete(cacheKey);
+        removeWarmNote(cacheKey);
+        removeWarmIndexTitles(cacheKey);
+        dispatchLibraryEvent(libraryNoteDeletedEvent, { title: cacheKey });
+      }
+      return Promise.reject(error);
+    })
+    .finally(() => {
+      noteRequests.delete(cacheKey);
+    });
+  noteRequests.set(cacheKey, request);
+  return request;
+}
+
+function fetchSemanticIndex() {
+  if (semanticIndexRequest) {
+    return semanticIndexRequest;
+  }
+  semanticIndexRevalidatedAt = Date.now();
+  semanticIndexRequest = api
+    .get("api/index")
+    .then((response) => {
+      const index = cloneIndex(response.data);
+      semanticIndexCache = { loadedAt: Date.now(), data: index };
+      tagCache = null;
+      setWarmIndex(index);
+      dispatchLibraryEvent(libraryIndexUpdatedEvent, cloneIndex(index));
+      return cloneIndex(index);
+    })
+    .finally(() => {
+      semanticIndexRequest = null;
+    });
+  return semanticIndexRequest;
+}
+
+function cloneIndex(index) {
+  return (Array.isArray(index) ? index : []).map((note) => ({
+    ...note,
+    tags: Array.isArray(note.tags) ? [...note.tags] : [],
+  }));
+}
+
+function dispatchLibraryEvent(name, detail) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(name, { detail }));
+  }
 }
 
 export async function createAttachment(file) {

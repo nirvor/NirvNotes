@@ -17,11 +17,11 @@ Set-Item -Path $CommandKey -Value "`"$ResolvedExe`" `"%1`""
 New-Item -Path $IconKey -Force | Out-Null
 Set-Item -Path $IconKey -Value "`"$ResolvedExe`",0"
 
-foreach ($Extension in ".md", ".txt", ".cfg", ".ini") {
+foreach ($Extension in ".md", ".txt", ".cfg", ".ini", ".json", ".yaml", ".yml", ".toml", ".xml", ".log") {
   $ExtensionKey = "HKCU:\Software\Classes\$Extension\OpenWithProgids"
   New-Item -Path $ExtensionKey -Force | Out-Null
   New-ItemProperty -Path $ExtensionKey -Name $ProgId -Value ([byte[]]@()) -PropertyType Binary -Force | Out-Null
 }
 
-Write-Host "Registered NirvNotes as an Open With app for .md, .txt, .cfg, and .ini."
+Write-Host "Registered NirvNotes as an Open With app for supported text and configuration files."
 Write-Host "Windows may still require Settings > Apps > Default apps once to make it the default."

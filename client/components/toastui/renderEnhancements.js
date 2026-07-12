@@ -2,8 +2,11 @@ import {
   mdiCheck,
   mdiClose,
   mdiContentCopy,
+  mdiFitToScreenOutline,
   mdiInformationOutline,
   mdiLinkVariant,
+  mdiMagnifyMinusOutline,
+  mdiMagnifyPlusOutline,
   mdiOpenInNew,
   mdiTag,
 } from "@mdi/js";
@@ -133,6 +136,8 @@ let katexInstance;
 let mermaidRenderCounter = 0;
 let mediaLightboxElement;
 let mediaLightboxLastFocusedElement;
+let mediaLightboxObjectUrl = "";
+let mediaLightboxZoom = 1;
 
 function createIcon(path) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -196,13 +201,28 @@ function createIconButton({ className, label, path, text }) {
   return button;
 }
 
-function getImageCaption(imageElement) {
-  const caption = imageElement.getAttribute("alt")?.trim();
-  return caption || "";
+function getImageCaption(mediaElement) {
+  const directCaption =
+    mediaElement.getAttribute("alt")?.trim() ||
+    mediaElement.getAttribute("aria-label")?.trim() ||
+    mediaElement.querySelector(":scope > title")?.textContent?.trim();
+  const figureCaption = mediaElement
+    .closest("figure")
+    ?.querySelector(":scope > figcaption")
+    ?.textContent?.trim();
+  return directCaption || figureCaption || "";
 }
 
-function getImageUrl(imageElement) {
-  const source = imageElement.currentSrc || imageElement.getAttribute("src");
+function getImageUrl(mediaElement) {
+  if (mediaElement instanceof SVGElement) {
+    const source = new XMLSerializer().serializeToString(mediaElement);
+    mediaLightboxObjectUrl = URL.createObjectURL(
+      new Blob([source], { type: "image/svg+xml" }),
+    );
+    return mediaLightboxObjectUrl;
+  }
+
+  const source = mediaElement.currentSrc || mediaElement.getAttribute("src");
   if (!source) {
     return "";
   }
@@ -222,10 +242,34 @@ function closeImageLightbox() {
   setImageLightboxDrawerOpen(false);
   mediaLightboxElement.overlay.hidden = true;
   document.body.classList.remove(mediaLightboxOpenBodyClass);
+  if (mediaLightboxObjectUrl) {
+    URL.revokeObjectURL(mediaLightboxObjectUrl);
+    mediaLightboxObjectUrl = "";
+  }
 
   if (mediaLightboxLastFocusedElement?.focus) {
     mediaLightboxLastFocusedElement.focus();
   }
+}
+
+function setImageLightboxZoom(nextZoom) {
+  if (!mediaLightboxElement) {
+    return;
+  }
+
+  mediaLightboxZoom = Math.min(4, Math.max(0.5, nextZoom));
+  mediaLightboxElement.image.style.setProperty(
+    "--flatnotes-media-zoom",
+    String(mediaLightboxZoom),
+  );
+  mediaLightboxElement.resetZoomButton.setAttribute(
+    "aria-label",
+    `Reset zoom (${Math.round(mediaLightboxZoom * 100)}%)`,
+  );
+  mediaLightboxElement.resetZoomButton.setAttribute(
+    "title",
+    `Reset zoom (${Math.round(mediaLightboxZoom * 100)}%)`,
+  );
 }
 
 function setImageLightboxDrawerOpen(isOpen, options = {}) {
@@ -241,11 +285,11 @@ function setImageLightboxDrawerOpen(isOpen, options = {}) {
   drawerButton.setAttribute("aria-expanded", String(isOpen));
   drawerButton.setAttribute(
     "aria-label",
-    isOpen ? "Close image actions" : "Open image actions",
+    isOpen ? "Close media actions" : "Open media actions",
   );
   drawerButton.setAttribute(
     "title",
-    isOpen ? "Close image actions" : "Open image actions",
+    isOpen ? "Close media actions" : "Open media actions",
   );
 
   if (options.focus) {
@@ -370,7 +414,7 @@ function createImageLightbox() {
   overlay.hidden = true;
   overlay.setAttribute("role", "dialog");
   overlay.setAttribute("aria-modal", "true");
-  overlay.setAttribute("aria-label", "Image preview");
+  overlay.setAttribute("aria-label", "Media preview");
 
   const panel = document.createElement("div");
   panel.className = "flatnotes-media-lightbox-panel";
@@ -379,9 +423,34 @@ function createImageLightbox() {
   image.className = "flatnotes-media-lightbox-image";
   image.alt = "";
 
+  const controls = document.createElement("div");
+  controls.className = "flatnotes-media-lightbox-controls";
+  const zoomOutButton = createIconButton({
+    className: "flatnotes-media-lightbox-control",
+    label: "Zoom out",
+    path: mdiMagnifyMinusOutline,
+  });
+  const resetZoomButton = createIconButton({
+    className: "flatnotes-media-lightbox-control",
+    label: "Reset zoom",
+    path: mdiFitToScreenOutline,
+  });
+  const zoomInButton = createIconButton({
+    className: "flatnotes-media-lightbox-control",
+    label: "Zoom in",
+    path: mdiMagnifyPlusOutline,
+  });
+  const closeButton = createIconButton({
+    className: "flatnotes-media-lightbox-control",
+    label: "Close media preview",
+    path: mdiClose,
+  });
+  controls.append(zoomOutButton, resetZoomButton, zoomInButton, closeButton);
+
   const drawerButton = createIconButton({
-    className: "flatnotes-media-lightbox-menu-button",
-    label: "Open image actions",
+    className:
+      "flatnotes-media-lightbox-control flatnotes-media-lightbox-menu-button",
+    label: "Open media actions",
     path: mdiInformationOutline,
   });
   drawerButton.setAttribute("aria-controls", "flatnotes-media-lightbox-drawer");
@@ -391,7 +460,7 @@ function createImageLightbox() {
   drawer.id = "flatnotes-media-lightbox-drawer";
   drawer.className = "flatnotes-media-lightbox-drawer";
   drawer.setAttribute("aria-hidden", "true");
-  drawer.setAttribute("aria-label", "Image actions");
+  drawer.setAttribute("aria-label", "Media actions");
   drawer.inert = true;
 
   const drawerHeader = document.createElement("div");
@@ -399,11 +468,11 @@ function createImageLightbox() {
 
   const drawerTitle = document.createElement("div");
   drawerTitle.className = "flatnotes-media-lightbox-drawer-title";
-  drawerTitle.textContent = "Image";
+  drawerTitle.textContent = "Media";
 
   const drawerCloseButton = createIconButton({
     className: "flatnotes-media-lightbox-drawer-close",
-    label: "Close image actions",
+    label: "Close media actions",
     path: mdiClose,
   });
 
@@ -428,8 +497,8 @@ function createImageLightbox() {
   originalLink.className = "flatnotes-media-lightbox-drawer-action";
   originalLink.target = "_blank";
   originalLink.rel = "noopener noreferrer";
-  originalLink.setAttribute("aria-label", "Open original image");
-  originalLink.setAttribute("title", "Open original image");
+  originalLink.setAttribute("aria-label", "Open original media");
+  originalLink.setAttribute("title", "Open original media");
   originalLink.append(
     createIcon(mdiOpenInNew),
     document.createTextNode("Open original"),
@@ -452,8 +521,9 @@ function createImageLightbox() {
   actions.append(originalLink, copyButton, closePreviewButton);
   drawer.append(drawerHeader, captionBlock, actions);
 
+  controls.insertBefore(drawerButton, closeButton);
   panel.append(image);
-  overlay.append(panel, drawerButton, drawer);
+  overlay.append(panel, controls, drawer);
   document.body.append(overlay);
 
   overlay.addEventListener("click", (event) => {
@@ -480,9 +550,30 @@ function createImageLightbox() {
     closeImageLightbox();
   });
 
+  closeButton.addEventListener("click", closeImageLightbox);
+  zoomOutButton.addEventListener("click", () =>
+    setImageLightboxZoom(mediaLightboxZoom - 0.25),
+  );
+  resetZoomButton.addEventListener("click", () => setImageLightboxZoom(1));
+  zoomInButton.addEventListener("click", () =>
+    setImageLightboxZoom(mediaLightboxZoom + 0.25),
+  );
+  image.addEventListener("dblclick", () =>
+    setImageLightboxZoom(mediaLightboxZoom === 1 ? 2 : 1),
+  );
+
   document.addEventListener("keydown", (event) => {
-    if (!overlay.hidden && event.key === "Escape") {
+    if (overlay.hidden) {
+      return;
+    }
+    if (event.key === "Escape") {
       closeImageLightbox();
+    } else if (event.key === "+" || event.key === "=") {
+      setImageLightboxZoom(mediaLightboxZoom + 0.25);
+    } else if (event.key === "-") {
+      setImageLightboxZoom(mediaLightboxZoom - 0.25);
+    } else if (event.key === "0") {
+      setImageLightboxZoom(1);
     }
   });
 
@@ -510,6 +601,7 @@ function createImageLightbox() {
 
   return {
     caption,
+    closeButton,
     closePreviewButton,
     copyButton,
     drawer,
@@ -518,6 +610,9 @@ function createImageLightbox() {
     image,
     originalLink,
     overlay,
+    resetZoomButton,
+    zoomInButton,
+    zoomOutButton,
   };
 }
 
@@ -529,15 +624,19 @@ function getImageLightbox() {
   return mediaLightboxElement;
 }
 
-function openImageLightbox(imageElement) {
-  const url = getImageUrl(imageElement);
+function openImageLightbox(mediaElement) {
+  if (mediaLightboxObjectUrl) {
+    URL.revokeObjectURL(mediaLightboxObjectUrl);
+    mediaLightboxObjectUrl = "";
+  }
+  const url = getImageUrl(mediaElement);
   if (!url) {
     return;
   }
 
   const { caption, copyButton, drawerButton, image, originalLink, overlay } =
     getImageLightbox();
-  const captionText = getImageCaption(imageElement);
+  const captionText = getImageCaption(mediaElement);
 
   mediaLightboxLastFocusedElement = document.activeElement;
   image.src = url;
@@ -551,6 +650,7 @@ function openImageLightbox(imageElement) {
   copyButton.dataset.flatnotesImageUrl = url;
   overlay.hidden = false;
   document.body.classList.add(mediaLightboxOpenBodyClass);
+  setImageLightboxZoom(1);
   setImageLightboxDrawerOpen(false);
   drawerButton.focus();
 }
@@ -620,6 +720,35 @@ function decorateMediaImage(imageElement) {
   }
 
   imageElement.classList.add(mediaImageClass);
+  imageElement.setAttribute("role", "button");
+  imageElement.setAttribute("tabindex", "0");
+  imageElement.setAttribute("title", "Open media detail");
+  imageElement.addEventListener("click", () => openImageLightbox(imageElement));
+  imageElement.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openImageLightbox(imageElement);
+    }
+  });
+}
+
+function decorateMediaDiagram(svgElement) {
+  if (svgElement.dataset.flatnotesMediaEnhanced === "true") {
+    return;
+  }
+
+  svgElement.dataset.flatnotesMediaEnhanced = "true";
+  svgElement.classList.add(mediaImageClass);
+  svgElement.setAttribute("role", "button");
+  svgElement.setAttribute("tabindex", "0");
+  svgElement.setAttribute("title", "Open media detail");
+  svgElement.addEventListener("click", () => openImageLightbox(svgElement));
+  svgElement.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openImageLightbox(svgElement);
+    }
+  });
 }
 
 export function enhanceMediaImages(rootElement) {
@@ -633,6 +762,20 @@ export function enhanceMediaImages(rootElement) {
   }
 
   contentRoot.querySelectorAll("img").forEach(decorateMediaImage);
+  contentRoot
+    .querySelectorAll(
+      [
+        ".flatnotes-mermaid-diagram svg",
+        '[data-flatnotes-component="plot"] svg',
+        '[data-flatnotes-component="diagram"] svg',
+        '[data-flatnotes-component="map"] svg',
+        ".flatnote-plot svg",
+        ".flatnote-diagram svg",
+        ".flatnote-map svg",
+        "figure > svg",
+      ].join(","),
+    )
+    .forEach(decorateMediaDiagram);
 }
 
 function normalizeLeadText(text) {
@@ -1519,4 +1662,5 @@ export async function enhanceRenderedMarkdown(rootElement, options = {}) {
     enhanceInlineLatex(rootElement),
     enhanceMermaidDiagrams(rootElement),
   ]);
+  enhanceMediaImages(rootElement);
 }

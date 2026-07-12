@@ -513,6 +513,7 @@ class FileSystemNotes(BaseNotes):
         is_valid_filename(title)
         filepath = self._existing_path_from_title(title)
         os.remove(filepath)
+        self._sync_index_with_retry(optimize=True)
 
     def search(
         self,
@@ -559,12 +560,14 @@ class FileSystemNotes(BaseNotes):
             return tuple(self._search_result_from_hit(hit) for hit in results)
 
     def get_tags(self) -> list[str]:
-        """Return a list of all indexed tags. Note: Tags no longer in use will
-        only be cleared when the index is next optimized."""
-        self._sync_index_with_retry()
-        with self.index.reader() as reader:
-            tags = reader.field_terms("tags")
-            return [tag for tag in tags]
+        """Return tags that are present in the current note files."""
+        tags = set()
+        for filename in self._list_all_note_filenames():
+            _, note_tags = self._extract_tags(
+                self._get_by_filename(filename).content or ""
+            )
+            tags.update(note_tags)
+        return sorted(tags)
 
     def get_context(self, title: str) -> NoteContext:
         """Return structured, LLM-friendly context for one note."""

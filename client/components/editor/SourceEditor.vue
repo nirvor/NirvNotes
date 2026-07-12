@@ -24,7 +24,11 @@ import {
   StreamLanguage,
   syntaxHighlighting,
 } from "@codemirror/language";
+import { json } from "@codemirror/legacy-modes/mode/javascript";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
+import { toml } from "@codemirror/legacy-modes/mode/toml";
+import { xml } from "@codemirror/legacy-modes/mode/xml";
+import { yaml } from "@codemirror/legacy-modes/mode/yaml";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import { Annotation, Compartment, EditorState } from "@codemirror/state";
 import {
@@ -201,6 +205,18 @@ function languageExtension(language = props.language) {
   }
   if (language === "ini" || language === "cfg" || language === "properties") {
     return StreamLanguage.define(properties);
+  }
+  if (language === "json") {
+    return StreamLanguage.define(json);
+  }
+  if (language === "yaml" || language === "yml") {
+    return StreamLanguage.define(yaml);
+  }
+  if (language === "toml") {
+    return StreamLanguage.define(toml);
+  }
+  if (language === "xml") {
+    return StreamLanguage.define(xml);
   }
   return [];
 }

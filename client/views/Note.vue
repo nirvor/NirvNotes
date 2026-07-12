@@ -178,6 +178,8 @@ import {
   createNote,
   deleteNote,
   getNote,
+  libraryNoteDeletedEvent,
+  libraryNoteUpdatedEvent,
   updateNote,
 } from "../api.js";
 import { Note } from "../classes.js";
@@ -347,6 +349,36 @@ function init() {
       loadingIndicator.value.setLoaded();
     });
   }
+}
+
+function cachedNoteUpdatedHandler(event) {
+  const updated = event.detail;
+  if (
+    !updated?.title ||
+    updated.title !== props.title ||
+    editMode.value ||
+    unsavedChanges.value
+  ) {
+    return;
+  }
+  if (
+    updated.lastModified === note.value.lastModified &&
+    updated.content === note.value.content
+  ) {
+    return;
+  }
+  note.value = new Note(updated);
+}
+
+function cachedNoteDeletedHandler(event) {
+  if (
+    event.detail?.title !== props.title ||
+    editMode.value ||
+    unsavedChanges.value
+  ) {
+    return;
+  }
+  loadingIndicator.value?.setFailed("Note not found", mdiNoteOffOutline);
 }
 
 function markNoteReady() {
@@ -1152,10 +1184,16 @@ watch(
     newTitle.value = getInitialNewTitle();
   },
 );
-onMounted(init);
+onMounted(() => {
+  window.addEventListener(libraryNoteUpdatedEvent, cachedNoteUpdatedHandler);
+  window.addEventListener(libraryNoteDeletedEvent, cachedNoteDeletedHandler);
+  init();
+});
 onUnmounted(() => {
   clearContentChangedTimeout();
   Mousetrap.unbind("e");
+  window.removeEventListener(libraryNoteUpdatedEvent, cachedNoteUpdatedHandler);
+  window.removeEventListener(libraryNoteDeletedEvent, cachedNoteDeletedHandler);
   globalStore.clearNoteActions();
 });
 </script>

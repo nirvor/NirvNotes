@@ -49,7 +49,12 @@ import {
 } from "vue";
 import { RouterView, useRoute } from "vue-router";
 
-import { apiErrorHandler, getConfig } from "./api.js";
+import {
+  apiErrorHandler,
+  getCachedConfig,
+  getConfig,
+  getSemanticIndex,
+} from "./api.js";
 import PrimeToast from "./components/PrimeToast.vue";
 import { useGlobalStore } from "./globalStore.js";
 import { loadTheme } from "./helpers.js";
@@ -131,11 +136,22 @@ watch(
 );
 
 function loadInitialConfig() {
-  getConfig()
+  const warmConfig = desktopShell.enabled ? getCachedConfig() : null;
+  if (warmConfig) {
+    globalStore.config = warmConfig;
+    markAppLoaded();
+    warmCommonNoteViews();
+    void getSemanticIndex().catch(() => {});
+  }
+
+  getConfig({ force: Boolean(warmConfig) })
     .then((data) => {
       globalStore.config = data;
-      markAppLoaded();
-      warmCommonNoteViews();
+      if (!warmConfig) {
+        markAppLoaded();
+        warmCommonNoteViews();
+      }
+      void getSemanticIndex().catch(() => {});
     })
     .catch((error) => {
       if (isCloudNetworkError(error)) {
@@ -149,8 +165,13 @@ function loadInitialConfig() {
 }
 
 let appReadyReported = false;
+let appMarkedLoaded = false;
 
 function markAppLoaded() {
+  if (appMarkedLoaded) {
+    return;
+  }
+  appMarkedLoaded = true;
   loadingIndicator.value?.setLoaded();
   performance.mark("nirvnotes-app-ready");
   if (appReadyReported || !window.pywebview?.api?.report_client_ready) {

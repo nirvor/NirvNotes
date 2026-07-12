@@ -12,7 +12,11 @@
       "action": "/open-file",
       "accept": {
         "text/markdown": [".md"],
-        "text/plain": [".txt", ".cfg", ".ini"]
+        "text/plain": [".txt", ".cfg", ".ini", ".log"],
+        "application/json": [".json"],
+        "application/yaml": [".yaml", ".yml"],
+        "application/toml": [".toml"],
+        "application/xml": [".xml"]
       },
       "launch_type": "single-client"
     }

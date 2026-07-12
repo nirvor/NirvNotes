@@ -37,10 +37,7 @@
       @pointerup="drawerPointerUp"
     >
       <div class="flatnotes-note-drawer-header">
-        <div>
-          <div class="flatnotes-note-drawer-kicker">Notes</div>
-          <div class="flatnotes-note-drawer-title">Switcher</div>
-        </div>
+        <div class="flatnotes-note-drawer-title">Notes</div>
         <button
           type="button"
           class="flatnotes-note-drawer-close"
@@ -52,23 +49,25 @@
         </button>
       </div>
 
-      <RouterLink
-        :to="{ name: 'home' }"
-        class="flatnotes-note-drawer-primary"
-        @click="closeDrawer"
-      >
-        <SvgIcon type="mdi" :path="mdilHome" size="1rem" />
-        <span>Home</span>
-      </RouterLink>
+      <nav class="flatnotes-note-drawer-nav" aria-label="Library navigation">
+        <RouterLink
+          :to="{ name: 'home' }"
+          class="flatnotes-note-drawer-primary"
+          @click="closeDrawer"
+        >
+          <SvgIcon type="mdi" :path="mdilHome" size="0.9rem" />
+          <span>Home</span>
+        </RouterLink>
 
-      <RouterLink
-        :to="allNotesRoute"
-        class="flatnotes-note-drawer-primary"
-        @click="closeDrawer"
-      >
-        <SvgIcon type="mdi" :path="mdilNoteMultiple" size="1rem" />
-        <span>All notes</span>
-      </RouterLink>
+        <RouterLink
+          :to="allNotesRoute"
+          class="flatnotes-note-drawer-primary"
+          @click="closeDrawer"
+        >
+          <SvgIcon type="mdi" :path="mdilNoteMultiple" size="0.9rem" />
+          <span>All notes</span>
+        </RouterLink>
+      </nav>
 
       <section class="flatnotes-note-drawer-section">
         <div class="flatnotes-note-drawer-section-title">Open</div>
@@ -77,7 +76,9 @@
             v-for="title in openTabs"
             :key="title"
             class="flatnotes-note-drawer-row"
-            :class="{ 'flatnotes-note-drawer-row-active': title === activeTitle }"
+            :class="{
+              'flatnotes-note-drawer-row-active': title === activeTitle,
+            }"
           >
             <RouterLink
               :to="{ name: 'note', params: { title } }"
@@ -94,7 +95,7 @@
               aria-label="Close tab"
               @click.stop="closeTab(title)"
             >
-              x
+              <SvgIcon type="mdi" :path="mdiClose" size="0.72rem" />
             </button>
           </div>
         </div>
@@ -129,7 +130,7 @@
 
 <script setup>
 import SvgIcon from "@jamescoyle/vue-icon";
-import { mdiBookMultipleOutline } from "@mdi/js";
+import { mdiBookMultipleOutline, mdiClose } from "@mdi/js";
 import {
   mdilChevronRight,
   mdilClock,
@@ -139,7 +140,12 @@ import {
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 
-import { getNotes } from "../api.js";
+import {
+  getCachedSemanticIndex,
+  getSemanticIndex,
+  libraryIndexUpdatedEvent,
+  libraryNoteDeletedEvent,
+} from "../api.js";
 import { params, searchSortOptions } from "../constants.js";
 
 const maxOpenTabs = 7;
@@ -177,18 +183,18 @@ const allNotesRoute = {
   },
 };
 
-const recentOptions = computed(() =>
-  uniqueTitles([...recentTitles.value, ...serverRecentTitles.value]).slice(
-    0,
-    maxRecentNotes,
-  ),
-);
+const recentOptions = computed(() => {
+  const open = new Set(openTabs.value);
+  return uniqueTitles([...recentTitles.value, ...serverRecentTitles.value])
+    .filter((title) => !open.has(title))
+    .slice(0, maxRecentNotes);
+});
 
 function loadTitles(key, legacyKey = null) {
   try {
-    const storedValue = localStorage.getItem(key) || (
-      legacyKey ? localStorage.getItem(legacyKey) : null
-    );
+    const storedValue =
+      localStorage.getItem(key) ||
+      (legacyKey ? localStorage.getItem(legacyKey) : null);
     const parsed = JSON.parse(storedValue || "[]");
     if (!Array.isArray(parsed)) {
       return [];
@@ -281,9 +287,9 @@ function loadServerRecentTitles() {
     return serverRecentRequest;
   }
 
-  serverRecentRequest = getNotes("*", "lastModified", "desc", maxRecentNotes)
-    .then((notes) => {
-      serverRecentTitles.value = notes.map((note) => note.title);
+  serverRecentRequest = getSemanticIndex()
+    .then((index) => {
+      applySemanticIndex(index);
       serverRecentFetchedAt = Date.now();
     })
     .catch((error) => {
@@ -294,6 +300,52 @@ function loadServerRecentTitles() {
     });
 
   return serverRecentRequest;
+}
+
+function applySemanticIndex(index, { prune = false } = {}) {
+  const sorted = [...(Array.isArray(index) ? index : [])].sort(
+    (left, right) =>
+      Number(right.lastModified || 0) - Number(left.lastModified || 0),
+  );
+  const validTitles = new Set(sorted.map((note) => note.title));
+  serverRecentTitles.value = sorted
+    .map((note) => note.title)
+    .slice(0, maxRecentNotes);
+
+  if (!prune) {
+    return;
+  }
+  const nextOpen = openTabs.value.filter((title) => validTitles.has(title));
+  const nextRecent = recentTitles.value.filter((title) =>
+    validTitles.has(title),
+  );
+  if (nextOpen.length !== openTabs.value.length) {
+    openTabs.value = nextOpen;
+    saveTitles(openTabsKey, nextOpen);
+  }
+  if (nextRecent.length !== recentTitles.value.length) {
+    recentTitles.value = nextRecent;
+    saveTitles(recentNotesKey, nextRecent);
+  }
+}
+
+function semanticIndexUpdatedHandler(event) {
+  applySemanticIndex(event.detail, { prune: true });
+  serverRecentFetchedAt = Date.now();
+}
+
+function libraryNoteDeletedHandler(event) {
+  const title = String(event.detail?.title || "");
+  if (!title) {
+    return;
+  }
+  openTabs.value = openTabs.value.filter((item) => item !== title);
+  recentTitles.value = recentTitles.value.filter((item) => item !== title);
+  serverRecentTitles.value = serverRecentTitles.value.filter(
+    (item) => item !== title,
+  );
+  saveTitles(openTabsKey, openTabs.value);
+  saveTitles(recentNotesKey, recentTitles.value);
 }
 
 function isTouchLike(event) {
@@ -397,6 +449,12 @@ onMounted(() => {
   document.addEventListener("pointerdown", edgePointerDown);
   document.addEventListener("pointerup", edgePointerUp);
   document.addEventListener("pointercancel", pointerCancelHandler);
+  window.addEventListener(
+    libraryIndexUpdatedEvent,
+    semanticIndexUpdatedHandler,
+  );
+  window.addEventListener(libraryNoteDeletedEvent, libraryNoteDeletedHandler);
+  applySemanticIndex(getCachedSemanticIndex());
 });
 
 onBeforeUnmount(() => {
@@ -408,6 +466,14 @@ onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", edgePointerDown);
   document.removeEventListener("pointerup", edgePointerUp);
   document.removeEventListener("pointercancel", pointerCancelHandler);
+  window.removeEventListener(
+    libraryIndexUpdatedEvent,
+    semanticIndexUpdatedHandler,
+  );
+  window.removeEventListener(
+    libraryNoteDeletedEvent,
+    libraryNoteDeletedHandler,
+  );
 });
 </script>
 
@@ -422,8 +488,8 @@ onBeforeUnmount(() => {
   right: max(0rem, env(safe-area-inset-right));
   z-index: 70;
   display: inline-flex;
-  width: 2.55rem;
-  height: 2.35rem;
+  width: 2.15rem;
+  height: 2.05rem;
   transform: translateY(-50%);
   align-items: center;
   justify-content: center;
@@ -432,7 +498,7 @@ onBeforeUnmount(() => {
   border-radius: 999px 0 0 999px;
   color: rgb(var(--theme-text-muted));
   background-color: rgb(var(--theme-background) / 0.86);
-  box-shadow: 0 0.5rem 1.4rem rgba(0, 0, 0, 0.18);
+  box-shadow: 0 0.25rem 0.8rem rgba(0, 0, 0, 0.12);
   backdrop-filter: blur(10px);
   opacity: 1;
   pointer-events: auto;
@@ -468,7 +534,7 @@ onBeforeUnmount(() => {
   position: fixed;
   inset: 0;
   z-index: 68;
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: rgba(0, 0, 0, 0.12);
   pointer-events: auto;
 }
 
@@ -477,17 +543,17 @@ onBeforeUnmount(() => {
   inset: 0 0 0 auto;
   z-index: 69;
   display: flex;
-  width: min(15.5rem, 74vw);
+  width: min(18rem, 82vw);
   transform: translateX(100%);
   flex-direction: column;
-  gap: 0.48rem;
+  gap: 0.68rem;
   overflow-y: auto;
-  padding: max(0.65rem, env(safe-area-inset-top)) 0.58rem
-    max(0.65rem, env(safe-area-inset-bottom));
+  padding: max(0.72rem, env(safe-area-inset-top)) 0.78rem
+    max(0.72rem, env(safe-area-inset-bottom));
   border-left: 1px solid rgb(var(--theme-border));
   color: rgb(var(--theme-text));
   background-color: rgb(var(--theme-background) / 0.97);
-  box-shadow: -0.85rem 0 2rem rgba(0, 0, 0, 0.28);
+  box-shadow: -0.35rem 0 1.25rem rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(14px);
   pointer-events: auto;
   touch-action: pan-y;
@@ -515,8 +581,9 @@ onBeforeUnmount(() => {
 }
 
 .flatnotes-note-drawer-title {
-  font-size: 0.94rem;
-  font-weight: 600;
+  color: rgb(var(--theme-text));
+  font-size: 1rem;
+  font-weight: 650;
 }
 
 .flatnotes-note-drawer-close,
@@ -529,63 +596,78 @@ onBeforeUnmount(() => {
 }
 
 .flatnotes-note-drawer-close {
-  width: 1.7rem;
-  height: 1.7rem;
-  border: 1px solid rgb(var(--theme-border));
-  background-color: rgb(var(--theme-background-elevated));
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 0;
+  background: transparent;
 }
 
 .flatnotes-note-drawer-primary,
 .flatnotes-note-drawer-row,
 .flatnotes-note-drawer-recent-link {
-  border: 1px solid rgb(var(--theme-border));
-  border-radius: 6px;
-  background-color: rgb(var(--theme-background-elevated));
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.flatnotes-note-drawer-nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  border-bottom: 1px solid rgb(var(--theme-border) / 0.55);
+  padding-bottom: 0.48rem;
 }
 
 .flatnotes-note-drawer-primary {
   display: inline-flex;
-  min-height: 1.95rem;
+  min-height: 1.8rem;
   align-items: center;
   gap: 0.42rem;
-  padding: 0 0.5rem;
-  color: rgb(var(--theme-text));
+  padding: 0;
+  color: rgb(var(--theme-text-muted));
+  font-size: 0.8rem;
   text-decoration: none;
+}
+
+.flatnotes-note-drawer-primary.router-link-active {
+  color: rgb(var(--theme-brand));
 }
 
 .flatnotes-note-drawer-section {
   min-width: 0;
+  margin-top: 0.08rem;
 }
 
 .flatnotes-note-drawer-section-title {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  margin-bottom: 0.2rem;
+  margin-bottom: 0.16rem;
 }
 
 .flatnotes-note-drawer-list {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 0.22rem;
+  gap: 0;
 }
 
 .flatnotes-note-drawer-recent-list {
-  gap: 0.18rem;
+  gap: 0;
 }
 
 .flatnotes-note-drawer-row {
   display: flex;
-  min-height: 1.86rem;
+  min-height: 2rem;
   min-width: 0;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0 0.18rem 0 0.46rem;
+  gap: 0.3rem;
+  border-bottom: 1px solid rgb(var(--theme-border) / 0.38);
+  padding: 0.2rem 0.1rem 0.2rem 0.42rem;
 }
 
 .flatnotes-note-drawer-row-active {
-  border-color: rgb(var(--theme-brand));
+  box-shadow: inset 2px 0 rgb(var(--theme-brand));
 }
 
 .flatnotes-note-drawer-link,
@@ -600,19 +682,21 @@ onBeforeUnmount(() => {
 
 .flatnotes-note-drawer-link {
   flex: 1 1 auto;
+  font-size: 0.84rem;
 }
 
 .flatnotes-note-drawer-recent-link {
   display: block;
-  min-height: 1.05rem;
-  padding: 0.1rem 0.36rem;
+  min-height: 1.78rem;
+  border-bottom: 1px solid rgb(var(--theme-border) / 0.3);
+  padding: 0.32rem 0.18rem;
   font-size: 0.8rem;
-  line-height: 1.08;
+  line-height: 1.15;
 }
 
 .flatnotes-note-drawer-row-close {
-  width: 1.42rem;
-  height: 1.42rem;
+  width: 1.35rem;
+  height: 1.35rem;
   flex: 0 0 auto;
   font-size: 0.76rem;
 }
@@ -627,8 +711,7 @@ onBeforeUnmount(() => {
 .flatnotes-note-drawer-row-close:hover,
 .flatnotes-note-drawer-row-close:focus-visible {
   color: rgb(var(--theme-text));
-  border-color: rgb(var(--theme-text-muted));
-  background-color: rgb(var(--theme-background));
+  background-color: rgb(var(--theme-background-elevated) / 0.62);
 }
 
 .flatnotes-note-drawer-empty {

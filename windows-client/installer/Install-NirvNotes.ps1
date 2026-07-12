@@ -12,7 +12,7 @@ $ErrorActionPreference = "Stop"
 
 $AppName = "NirvNotes"
 $ProgId = "NirvNotes.TextFile"
-$Extensions = @(".md", ".txt", ".cfg", ".ini")
+$Extensions = @(".md", ".txt", ".cfg", ".ini", ".json", ".yaml", ".yml", ".toml", ".xml", ".log")
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PackageVersion = "Win11 client"
 $PackageManifestPath = Join-Path $ScriptRoot "installer-manifest.json"
@@ -253,7 +253,7 @@ if (-not $NoDesktopShortcut) {
 
 if (-not $NoFileAssociations) {
   Register-FileAssociations -ExePath $ExePath
-  Write-Ok "Registered .md, .txt, .cfg, and .ini as Open With targets."
+  Write-Ok "Registered supported text and configuration formats as Open With targets."
 }
 
 Register-Uninstaller -ExePath $ExePath -TargetDir $InstallDir
@@ -269,4 +269,4 @@ if (-not $NoLaunch) {
 
 Write-Step "Done"
 Write-Host "NirvNotes is installed for this Windows user."
-Write-Host "If Windows asks for the default app once, choose NirvNotes for .md/.txt/.cfg/.ini."
+Write-Host "If Windows asks for the default app once, choose NirvNotes for the wanted text/config format."

@@ -7,9 +7,10 @@
         class="flatnotes-home-pinned min-h-56"
         hideLoader
       >
-        <p v-if="notes.length > 0" class="flatnotes-home-pinned-title">
-          {{ globalStore.config.quickAccessTitle }}
-        </p>
+        <div v-if="notes.length > 0" class="flatnotes-home-pinned-title">
+          <SvgIcon type="mdi" :path="mdiStar" size="0.72rem" />
+          <span>{{ globalStore.config.quickAccessTitle }}</span>
+        </div>
         <div v-if="notes.length > 0" class="flatnotes-home-pinned-list">
           <RouterLink
             v-for="note in notes.slice(0, globalStore.config.quickAccessLimit)"
@@ -18,7 +19,7 @@
             class="flatnotes-home-pinned-link"
             :title="note.title"
           >
-            {{ note.title }}
+            <span>{{ note.title }}</span>
           </RouterLink>
           <RouterLink
             v-if="notes.length > globalStore.config.quickAccessLimit"
@@ -43,12 +44,16 @@
 
 <script setup>
 import SvgIcon from "@jamescoyle/vue-icon";
-import { mdiDotsHorizontal } from "@mdi/js";
+import { mdiDotsHorizontal, mdiStar } from "@mdi/js";
 import { useToast } from "primevue/usetoast";
-import { onMounted, ref, watch } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 
-import { apiErrorHandler, getNotes } from "../api.js";
+import {
+  apiErrorHandler,
+  getSemanticIndex,
+  libraryIndexUpdatedEvent,
+} from "../api.js";
 import LoadingIndicator from "../components/LoadingIndicator.vue";
 import { searchSortOptions } from "../constants.js";
 import { useGlobalStore } from "../globalStore.js";
@@ -64,16 +69,9 @@ function init() {
   if (globalStore.config.quickAccessHide) {
     return;
   }
-  getNotes(
-    globalStore.config.quickAccessTerm,
-    globalStore.config.quickAccessSort,
-    // Order by ascending if sorting by title, descending otherwise.
-    globalStore.config.quickAccessSort === "title" ? "asc" : "desc",
-    // Limit is increased by 1 to check if there are more notes than the limit.
-    globalStore.config.quickAccessLimit + 1,
-  )
-    .then((data) => {
-      notes.value = data;
+  getSemanticIndex()
+    .then((index) => {
+      applySemanticIndex(index);
       loadingIndicator.value.setLoaded();
     })
     .catch((error) => {
@@ -87,9 +85,53 @@ function init() {
     });
 }
 
+function applySemanticIndex(index) {
+  const tag = String(globalStore.config.quickAccessTerm || "#pinned")
+    .replace(/^#/, "")
+    .toLowerCase();
+  const matching = (Array.isArray(index) ? index : []).filter((note) =>
+    (note.tags || []).some((noteTag) => String(noteTag).toLowerCase() === tag),
+  );
+  matching.sort((left, right) => {
+    if (globalStore.config.quickAccessSort === "title") {
+      return left.title.localeCompare(right.title);
+    }
+    return Number(right.lastModified || 0) - Number(left.lastModified || 0);
+  });
+  notes.value = matching.slice(
+    0,
+    Number(globalStore.config.quickAccessLimit || 7) + 1,
+  );
+}
+
+function semanticIndexUpdatedHandler(event) {
+  applySemanticIndex(event.detail);
+  loadingIndicator.value?.setLoaded();
+}
+
 // Watch to allow for delayed config load.
-watch(() => globalStore.config.hideRecentlyModified, init);
-onMounted(init);
+watch(
+  () => [
+    globalStore.config.quickAccessHide,
+    globalStore.config.quickAccessTerm,
+    globalStore.config.quickAccessSort,
+    globalStore.config.quickAccessLimit,
+  ],
+  init,
+);
+onMounted(() => {
+  window.addEventListener(
+    libraryIndexUpdatedEvent,
+    semanticIndexUpdatedHandler,
+  );
+  init();
+});
+onBeforeUnmount(() => {
+  window.removeEventListener(
+    libraryIndexUpdatedEvent,
+    semanticIndexUpdatedHandler,
+  );
+});
 </script>
 
 <style scoped>
@@ -115,10 +157,13 @@ onMounted(init);
 }
 
 .flatnotes-home-pinned-title {
-  margin: 0 0 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0 0 0.32rem;
   color: rgb(var(--theme-text-very-muted));
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: 0.7rem;
+  font-weight: 650;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -128,18 +173,22 @@ onMounted(init);
   width: 100%;
   min-width: 0;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
-  gap: 0.36rem;
+  column-gap: 1rem;
+  row-gap: 0;
 }
 
 .flatnotes-home-pinned-link {
+  display: flex;
   min-width: 0;
+  min-height: 2rem;
   overflow: hidden;
-  border: 1px solid rgb(var(--theme-border) / 0.7);
-  border-radius: 999px;
-  padding: 0.28rem 0.58rem;
+  align-items: center;
+  border: 0;
+  border-bottom: 1px solid rgb(var(--theme-border) / 0.42);
+  padding: 0.3rem 0.08rem;
   color: rgb(var(--theme-text-muted));
-  background-color: rgb(var(--theme-background-elevated) / 0.35);
-  font-size: 0.86rem;
+  background: transparent;
+  font-size: 0.84rem;
   line-height: 1.15;
   text-align: left;
   text-decoration: none;
@@ -150,8 +199,7 @@ onMounted(init);
 .flatnotes-home-pinned-link:hover,
 .flatnotes-home-pinned-link:focus-visible {
   color: rgb(var(--theme-text));
-  border-color: rgb(var(--theme-text-muted));
-  background-color: rgb(var(--theme-background-elevated) / 0.65);
+  border-bottom-color: rgb(var(--theme-brand) / 0.62);
   outline: none;
 }
 
@@ -159,6 +207,7 @@ onMounted(init);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  color: rgb(var(--theme-text-very-muted));
 }
 
 @media (max-width: 560px) {

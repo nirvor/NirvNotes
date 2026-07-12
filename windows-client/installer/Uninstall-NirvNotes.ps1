@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ProgId = "NirvNotes.TextFile"
-$Extensions = @(".md", ".txt", ".cfg", ".ini")
+$Extensions = @(".md", ".txt", ".cfg", ".ini", ".json", ".yaml", ".yml", ".toml", ".xml", ".log")
 
 function Write-Step([string]$Text) {
   Write-Host ""

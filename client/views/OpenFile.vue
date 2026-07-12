@@ -30,7 +30,7 @@
       ref="fileInput"
       type="file"
       class="hidden"
-      accept=".md,.txt,.cfg,.ini,text/markdown,text/plain"
+      accept=".md,.txt,.cfg,.ini,.json,.yaml,.yml,.toml,.xml,.log,text/markdown,text/plain,application/json,application/yaml,application/xml"
       multiple
       @change="fileInputChanged"
     />
@@ -147,8 +147,8 @@
         class="mb-2 justify-center"
       />
       <p>
-        Open a .md, .txt, .cfg, or .ini file through Windows, or choose one
-        here. Nothing is saved into NirvNotes.
+        Open a local text or configuration file through Windows, or choose one
+        here. Nothing is saved into the Library.
       </p>
     </div>
 
@@ -298,7 +298,7 @@ const editorLanguage = computed(() => {
   return extension === "md" ? "markdown" : extension;
 });
 const editorWrap = computed(() =>
-  ["md", "txt"].includes(activeFile.value?.extension),
+  ["md", "txt", "log"].includes(activeFile.value?.extension),
 );
 const editorSessionKey = computed(() =>
   activeFile.value ? `local:${activeFile.value.draftStorageKey}` : "",
@@ -480,10 +480,14 @@ async function chooseFile() {
         multiple: true,
         types: [
           {
-            description: "Text and Markdown files",
+            description: "Text and configuration files",
             accept: {
               "text/markdown": [".md"],
-              "text/plain": [".txt", ".cfg", ".ini"],
+              "text/plain": [".txt", ".cfg", ".ini", ".log"],
+              "application/json": [".json"],
+              "application/yaml": [".yaml", ".yml"],
+              "application/toml": [".toml"],
+              "application/xml": [".xml"],
             },
           },
         ],
@@ -781,12 +785,12 @@ function sanitizeTitle(value = "") {
 }
 
 function codeLanguageForExtension(extension = "") {
-  if (extension === "ini") {
+  if (extension === "ini" || extension === "cfg") {
     return "ini";
   }
 
-  if (extension === "json") {
-    return "json";
+  if (["json", "yaml", "yml", "toml", "xml"].includes(extension)) {
+    return extension === "yml" ? "yaml" : extension;
   }
 
   return "";
