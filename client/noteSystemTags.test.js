@@ -5,6 +5,7 @@ import {
   documentHasSystemTag,
   getFlatnotesMetaTags,
   setDocumentSystemTag,
+  synchronizeDocumentTags,
 } from "./noteSystemTags.js";
 
 const researchNote = `<!doctype html>
@@ -50,4 +51,36 @@ test("legacy markdown can still be pinned", () => {
     enabled: false,
   });
   assert.doesNotMatch(unpinned, /#pinned/);
+});
+
+test("visible HTML tags replace stale non-system metadata on save", () => {
+  const stale = `<!doctype html>
+<html><head><meta name="flatnotes-tags" content="private,pinned,robotics"></head>
+<body><article><p>#private #nirv-bot</p></article></body></html>`;
+
+  const synchronized = synchronizeDocumentTags({
+    content: stale,
+    previousContent: stale,
+  });
+
+  assert.deepEqual(getFlatnotesMetaTags(synchronized), [
+    "private",
+    "nirv-bot",
+    "pinned",
+  ]);
+  assert.doesNotMatch(synchronized, /content="[^"]*robotics/);
+});
+
+test("removing the final visible HTML tag clears non-system metadata", () => {
+  const previous = `<!doctype html>
+<html><head><meta name="flatnotes-tags" content="private,pinned"></head>
+<body><article><p>#private</p></article></body></html>`;
+  const content = previous.replace("<p>#private</p>", "");
+
+  const synchronized = synchronizeDocumentTags({
+    content,
+    previousContent: previous,
+  });
+
+  assert.deepEqual(getFlatnotesMetaTags(synchronized), ["pinned"]);
 });

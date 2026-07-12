@@ -120,6 +120,25 @@ export function getFlatnotesMetaTags(content = "") {
   return metaMarkup ? splitTags(getAttributeValue(metaMarkup, "content")) : [];
 }
 
+export function synchronizeDocumentTags({
+  content = "",
+  previousContent = "",
+  format = "html",
+} = {}) {
+  if (format !== "html" || isWorkNoteHtml(content)) {
+    return content;
+  }
+
+  const visibleTags = getLegacyTagOnlyTags(content);
+  const previousVisibleTags = getLegacyTagOnlyTags(previousContent);
+  if (!visibleTags.length && !previousVisibleTags.length) {
+    return content;
+  }
+
+  const metadataOnlyTags = getFlatnotesMetaTags(content).filter(isSystemTag);
+  return setFlatnotesMetaTags(content, [...visibleTags, ...metadataOnlyTags]);
+}
+
 export { isSystemTag };
 
 export function documentHasSystemTag(

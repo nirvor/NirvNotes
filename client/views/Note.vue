@@ -199,6 +199,7 @@ import { isCurrentTokenStored } from "../tokenStorage.js";
 import {
   documentHasSystemTag,
   setDocumentSystemTag,
+  synchronizeDocumentTags,
 } from "../noteSystemTags.js";
 
 const HtmlEditor = defineAsyncComponent(
@@ -1165,7 +1166,18 @@ function getEditorContent() {
     return contentEditor.value.getMarkdown();
   }
 
-  return contentEditor.value.getContent(newTitle.value || note.value.title);
+  const content = contentEditor.value.getContent(
+    newTitle.value || note.value.title,
+  );
+  if (editorKind.value !== "research") {
+    return content;
+  }
+
+  return synchronizeDocumentTags({
+    content,
+    previousContent: note.value.content || "",
+    format: editorFormat.value,
+  });
 }
 
 watchEffect(updateNoteActions);

@@ -34,6 +34,17 @@ class HtmlTagExtractionTests(unittest.TestCase):
 
         self.assertEqual(tags, {"private", "pinned"})
 
+    def test_visible_tags_override_stale_non_system_metadata(self):
+        content = """<!doctype html>
+<html>
+  <head><meta name="flatnotes-tags" content="private,pinned,robotics"></head>
+  <body><article><p>#private #nirv-bot</p></article></body>
+</html>"""
+
+        _, tags = FileSystemNotes._extract_tags(content)
+
+        self.assertEqual(tags, {"private", "nirv-bot", "pinned"})
+
 
 class LiveTagTests(unittest.TestCase):
     def test_get_tags_only_returns_tags_from_existing_notes(self):

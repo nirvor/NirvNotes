@@ -42,7 +42,8 @@ from ..models import (
 HTML_EXT = ".html"
 LEGACY_MARKDOWN_EXT = ".md"
 NOTE_EXTENSIONS = (HTML_EXT, LEGACY_MARKDOWN_EXT)
-INDEX_SCHEMA_VERSION = "7"
+INDEX_SCHEMA_VERSION = "8"
+HTML_METADATA_ONLY_TAGS = {"pinned"}
 
 StemmingFoldingAnalyzer = StemmingAnalyzer() | CharsetFilter(accent_map)
 
@@ -711,7 +712,15 @@ class FileSystemNotes(BaseNotes):
             content_ex_tags, _ = cls._re_extract(
                 cls.TAGS_RE, searchable_content
             )
-            return (content_ex_tags, meta_tags.union(visible_tags))
+            if visible_tags:
+                metadata_only_tags = meta_tags.intersection(
+                    HTML_METADATA_ONLY_TAGS
+                )
+                return (
+                    content_ex_tags,
+                    visible_tags.union(metadata_only_tags),
+                )
+            return (content_ex_tags, meta_tags)
 
         content_ex_codeblock = re.sub(cls.CODEBLOCK_RE, "", searchable_content)
         _, tags = cls._re_extract(cls.TAGS_RE, content_ex_codeblock)
