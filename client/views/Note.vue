@@ -9,6 +9,23 @@
     @confirm="deleteConfirmedHandler"
   />
 
+  <PublishNoteModal
+    v-model="isPublishModalVisible"
+    :suggested-slug="publication?.suggestedSlug || ''"
+    :busy="publishBusy"
+    :problem-message="publishProblemMessage"
+    @publish="publishConfirmedHandler"
+  />
+
+  <ConfirmModal
+    v-model="isUpdateModalVisible"
+    title="Update online"
+    :message="`Replace ${publication?.canonicalUrl || 'the public page'} with the current saved note?`"
+    confirmButtonText="Update"
+    confirmButtonStyle="cta"
+    @confirm="startPublication()"
+  />
+
   <!-- Save Changes Modal -->
   <ConfirmModal
     v-model="isSaveChangesModalVisible"
@@ -159,14 +176,18 @@
 
 <script setup>
 import {
+  mdiCloudUploadOutline,
   mdiCodeTags,
   mdiContentCopy,
   mdiLanguageHtml5,
   mdiLinkVariant,
   mdiNoteOffOutline,
+  mdiOpenInNew,
   mdiStar,
   mdiStarOutline,
+  mdiSync,
   mdiTextBoxOutline,
+  mdiWeb,
 } from "@mdi/js";
 import {
   mdilCheck,
@@ -194,14 +215,17 @@ import {
   createNote,
   deleteNote,
   getNote,
+  getNotePublication,
   libraryNoteDeletedEvent,
   libraryNoteUpdatedEvent,
+  publishNote,
   updateNote,
 } from "../api.js";
 import { Note } from "../classes.js";
 import ConfirmModal from "../components/ConfirmModal.vue";
 import DocumentFindBar from "../components/DocumentFindBar.vue";
 import LoadingIndicator from "../components/LoadingIndicator.vue";
+import PublishNoteModal from "../components/PublishNoteModal.vue";
 import {
   buildWorkNoteHtml,
   extractWorkMarkdown,
@@ -214,6 +238,12 @@ import { useDocumentFind } from "../documentFind.js";
 import { useGlobalStore } from "../globalStore.js";
 import { getToastOptions } from "../helpers.js";
 import { isCurrentTokenStored } from "../tokenStorage.js";
+import {
+  isPublicationPending,
+  publicationPollDelay,
+  publicationProblemMessage,
+  publicationToolbarMode,
+} from "../publicationState.js";
 import {
   documentHasSystemTag,
   setDocumentSystemTag,
@@ -287,6 +317,20 @@ const loadingIndicator = ref();
 const note = ref({});
 const noteContent = ref();
 const pinBusy = ref(false);
+const publication = ref(null);
+const isPublishModalVisible = ref(false);
+const isUpdateModalVisible = ref(false);
+const publishBusy = ref(false);
+const publishProblem = ref(null);
+const publishProblemMessage = computed(() =>
+  publishProblem.value ? publicationProblemMessage(publishProblem.value) : "",
+);
+const publicationMode = computed(() =>
+  publicationToolbarMode(publication.value),
+);
+let publicationPollTimer = null;
+let publicationPollAttempt = 0;
+let publicationRequestSequence = 0;
 const isPinned = computed(() =>
   documentHasSystemTag(
     note.value.content || "",
@@ -356,6 +400,7 @@ function init() {
     return;
   }
 
+  resetPublicationState();
   loadingIndicator.value.setLoading();
   if (props.title) {
     getNote(props.title)
@@ -363,6 +408,7 @@ function init() {
         note.value = data;
         loadingIndicator.value.setLoaded();
         markNoteReady();
+        void loadPublicationState();
       })
       .catch((error) => {
         if (error.response?.status === 404) {
@@ -405,6 +451,7 @@ function cachedNoteUpdatedHandler(event) {
     return;
   }
   note.value = new Note(updated);
+  void loadPublicationState();
 }
 
 function cachedNoteDeletedHandler(event) {
@@ -740,6 +787,189 @@ function noteSaveFailure(error) {
 function noteSaveSuccess() {
   clearContentChangedTimeout();
   toast.add(getToastOptions("Note saved successfully ✓", "Success", "success"));
+  void loadPublicationState();
+}
+
+function resetPublicationState() {
+  publicationRequestSequence += 1;
+  window.clearTimeout(publicationPollTimer);
+  publicationPollTimer = null;
+  publicationPollAttempt = 0;
+  publication.value = null;
+  publishProblem.value = null;
+  publishBusy.value = false;
+  isPublishModalVisible.value = false;
+  isUpdateModalVisible.value = false;
+}
+
+function canLoadPublicationState() {
+  return !isNewNote.value && isHtmlFormat.value && Boolean(note.value.title);
+}
+
+async function loadPublicationState({ polling = false } = {}) {
+  window.clearTimeout(publicationPollTimer);
+  publicationPollTimer = null;
+  if (!canLoadPublicationState()) {
+    publication.value = null;
+    return;
+  }
+
+  const requestSequence = ++publicationRequestSequence;
+  try {
+    const state = await getNotePublication(note.value.title);
+    if (requestSequence !== publicationRequestSequence) {
+      return;
+    }
+    publication.value = state;
+    publishProblem.value = state.error || null;
+    if (isPublicationPending(state.state)) {
+      schedulePublicationPoll(state);
+    } else {
+      publicationPollAttempt = 0;
+    }
+  } catch (error) {
+    if (requestSequence !== publicationRequestSequence) {
+      return;
+    }
+    if (error.response?.status === 401) {
+      apiErrorHandler(error, toast);
+    } else if (!polling) {
+      console.error(error);
+    }
+  }
+}
+
+function schedulePublicationPoll(state) {
+  const delay = publicationPollDelay(
+    publicationPollAttempt,
+    state.operation?.retryAfterMs,
+  );
+  publicationPollAttempt += 1;
+  publicationPollTimer = window.setTimeout(
+    () => loadPublicationState({ polling: true }),
+    delay,
+  );
+}
+
+function publicationProblemFromError(error) {
+  const data = error?.response?.data;
+  return data && typeof data === "object"
+    ? data
+    : {
+        code: "consumer_unavailable",
+        detail: "Publishing is temporarily unavailable.",
+        retryable: true,
+      };
+}
+
+function publicationActionHandler() {
+  if (publicationMode.value === "show") {
+    openPublicPublication();
+    return;
+  }
+  if (publicationMode.value === "update") {
+    isUpdateModalVisible.value = true;
+    return;
+  }
+  if (publicationMode.value === "publish") {
+    publishProblem.value = publication.value?.error || null;
+    isPublishModalVisible.value = true;
+  }
+}
+
+function publishConfirmedHandler(slug) {
+  void startPublication(slug);
+}
+
+async function startPublication(requestedSlug = null) {
+  if (publishBusy.value || !publication.value?.lastModified) {
+    return;
+  }
+  const wasFirstPublish = !publication.value.canonicalUrl;
+  publishBusy.value = true;
+  publishProblem.value = null;
+  publication.value = {
+    ...publication.value,
+    state: "preparing",
+  };
+  try {
+    const state = await publishNote(note.value.title, {
+      ...(requestedSlug ? { requestedSlug } : {}),
+      expectedLastModified: publication.value.lastModified,
+    });
+    publication.value = state;
+    isPublishModalVisible.value = false;
+    isUpdateModalVisible.value = false;
+    if (isPublicationPending(state.state)) {
+      publicationPollAttempt = 0;
+      schedulePublicationPoll(state);
+    } else if (state.state === "current") {
+      toast.add(
+        getToastOptions("Public page is online.", "Published", "success"),
+      );
+    }
+  } catch (error) {
+    const problem = publicationProblemFromError(error);
+    publishProblem.value = problem;
+    publication.value = {
+      ...publication.value,
+      state: wasFirstPublish ? "failed-unpublished" : "failed-update",
+      error: problem,
+    };
+    if (!wasFirstPublish) {
+      toast.add(
+        getToastOptions(
+          publicationProblemMessage(problem),
+          "Publish Failed",
+          "error",
+        ),
+      );
+    }
+  } finally {
+    publishBusy.value = false;
+  }
+}
+
+function openPublicPublication() {
+  const url = publication.value?.canonicalUrl;
+  if (!url) {
+    return;
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") {
+      throw new Error("Invalid public URL");
+    }
+  } catch (_error) {
+    toast.add(
+      getToastOptions("The public URL is invalid.", "Open Failed", "error"),
+    );
+    return;
+  }
+
+  if (window.pywebview?.api?.open_external_url) {
+    Promise.resolve(window.pywebview.api.open_external_url(url))
+      .then((result) => {
+        if (!result?.opened) {
+          throw new Error(result?.error || "Could not open the public page.");
+        }
+      })
+      .catch((error) => {
+        toast.add(getToastOptions(error.message, "Open Failed", "error"));
+      });
+    return;
+  }
+
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    toast.add(
+      getToastOptions(
+        "Could not open the public page.",
+        "Open Failed",
+        "error",
+      ),
+    );
+  }
 }
 
 // Note Closure
@@ -1130,6 +1360,14 @@ function getCopyMenuItems() {
     },
   ];
 
+  if (publication.value?.canonicalUrl) {
+    items.unshift({
+      label: "Show online",
+      icon: mdiOpenInNew,
+      command: openPublicPublication,
+    });
+  }
+
   if (isHtmlFormat.value && !isWorkNote.value) {
     items.push({
       label: "Copy HTML",
@@ -1148,6 +1386,29 @@ function getCopyMenuItems() {
 }
 
 function updateNoteActions() {
+  const publishAction = {
+    publish: {
+      key: "publish",
+      label: "Publish",
+      iconPath: mdiCloudUploadOutline,
+    },
+    publishing: {
+      key: "publishing",
+      label: "Publishing...",
+      iconPath: mdiCloudUploadOutline,
+      disabled: true,
+    },
+    show: {
+      key: "show-online",
+      label: "Show online",
+      iconPath: mdiWeb,
+    },
+    update: {
+      key: "update-online",
+      label: "Update online",
+      iconPath: mdiSync,
+    },
+  }[publicationMode.value];
   globalStore.setNoteActions([
     {
       key: "copy",
@@ -1156,6 +1417,18 @@ function updateNoteActions() {
       visible: !editMode.value && !isNewNote.value && Boolean(note.value.title),
       iconOnly: true,
       handler: () => copyNote(),
+    },
+    {
+      ...(publishAction || {}),
+      key: publishAction?.key || "publication-hidden",
+      visible:
+        Boolean(publishAction) &&
+        canModify.value &&
+        !editMode.value &&
+        !isNewNote.value &&
+        isHtmlFormat.value,
+      disabled: publishAction?.disabled || publishBusy.value,
+      handler: publicationActionHandler,
     },
     {
       key: "pin",
@@ -1270,6 +1543,8 @@ onMounted(() => {
 });
 onUnmounted(() => {
   clearContentChangedTimeout();
+  publicationRequestSequence += 1;
+  window.clearTimeout(publicationPollTimer);
   Mousetrap.unbind("e");
   window.removeEventListener(libraryNoteUpdatedEvent, cachedNoteUpdatedHandler);
   window.removeEventListener(libraryNoteDeletedEvent, cachedNoteDeletedHandler);

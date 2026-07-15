@@ -2,6 +2,7 @@ import glob
 import os
 import re
 import shutil
+import tempfile
 import time
 from collections import Counter
 from datetime import datetime
@@ -22,6 +23,11 @@ from whoosh.support.charset import accent_map
 
 from helpers import get_env, is_valid_filename
 from logger import logger
+from publications.metadata import (
+    PUBLICATION_FILE_LOCK,
+    preserve_publication_metadata,
+    strip_publication_metadata,
+)
 
 from ..base import BaseNotes
 from ..models import (
@@ -97,9 +103,7 @@ class NoteHtmlParser(HTMLParser):
     }
     SKIP_TAGS = {"script", "style", "template"}
     TAG_CONTAINER_TAGS = {"div", "footer", "p"}
-    TAG_ONLY_RE = re.compile(
-        r"^#[a-zA-Z0-9_-]+(?:\s+#[a-zA-Z0-9_-]+)*$"
-    )
+    TAG_ONLY_RE = re.compile(r"^#[a-zA-Z0-9_-]+(?:\s+#[a-zA-Z0-9_-]+)*$")
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -120,7 +124,9 @@ class NoteHtmlParser(HTMLParser):
             tag == "meta"
             and attrs_dict.get("name", "").lower() == "flatnotes-tags"
         ):
-            self.meta_tags.update(FileSystemNotes._split_tag_list(attrs_dict.get("content", "")))
+            self.meta_tags.update(
+                FileSystemNotes._split_tag_list(attrs_dict.get("content", ""))
+            )
 
         if tag == "img":
             alt_text = attrs_dict.get("alt", "").strip()
@@ -145,7 +151,9 @@ class NoteHtmlParser(HTMLParser):
                 if candidate["tag"] != tag:
                     continue
                 self.tag_candidates.pop(index)
-                text = re.sub(r"\s+", " ", " ".join(candidate["parts"])).strip()
+                text = re.sub(
+                    r"\s+", " ", " ".join(candidate["parts"])
+                ).strip()
                 if self.TAG_ONLY_RE.fullmatch(text):
                     self.visible_tags.update(
                         FileSystemNotes._split_tag_list(text)
@@ -244,7 +252,10 @@ class NoteSemanticParser(HTMLParser):
 
         self._add_components(tag, attrs_dict, classes)
         self._read_meta(tag, attrs_dict)
-        if attrs_dict.get("data-flatnotes-note-kind", "").strip().lower() == "work":
+        if (
+            attrs_dict.get("data-flatnotes-note-kind", "").strip().lower()
+            == "work"
+        ):
             self.note_kind = "work"
 
         if tag not in self.VOID_TAGS:
@@ -274,7 +285,9 @@ class NoteSemanticParser(HTMLParser):
             )
 
         if tag == "figure":
-            self.figure_stack.append({"media_indices": [], "caption_parts": []})
+            self.figure_stack.append(
+                {"media_indices": [], "caption_parts": []}
+            )
 
         if tag == "figcaption":
             self.figcaption_depth += 1
@@ -457,10 +470,13 @@ class FileSystemNotes(BaseNotes):
         self._raise_if_title_exists(data.title)
         note_format = data.format or "html"
         filepath = self._path_from_title(data.title, note_format)
-        self._write_file(filepath, data.content or "")
+        content = data.content or ""
+        if note_format == "html":
+            content = strip_publication_metadata(content)
+        self._write_file(filepath, content)
         return Note(
             title=data.title,
-            content=data.content or "",
+            content=content,
             last_modified=os.path.getmtime(filepath),
             format=note_format,
         )
@@ -479,35 +495,48 @@ class FileSystemNotes(BaseNotes):
 
     def update(self, title: str, data: NoteUpdate) -> Note:
         """Update a specific note."""
-        is_valid_filename(title)
-        filepath = self._existing_path_from_title(title)
+        with PUBLICATION_FILE_LOCK:
+            is_valid_filename(title)
+            filepath = self._existing_path_from_title(title)
+            existing_content = self._read_file(filepath)
+            existing_format = self._format_from_path(filepath)
 
-        next_title = data.new_title if data.new_title is not None else title
-        next_format = (
-            data.new_format
-            if data.new_format is not None
-            else self._format_from_path(filepath)
-        )
-        new_filepath = self._path_from_title(next_title, next_format)
-        if filepath != new_filepath:
-            self._raise_if_title_exists(next_title, ignore_path=filepath)
-            os.rename(filepath, new_filepath)
-            title = next_title
-            filepath = new_filepath
-        else:
-            title = next_title
+            next_title = (
+                data.new_title if data.new_title is not None else title
+            )
+            next_format = (
+                data.new_format
+                if data.new_format is not None
+                else self._format_from_path(filepath)
+            )
+            new_filepath = self._path_from_title(next_title, next_format)
+            if filepath != new_filepath:
+                self._raise_if_title_exists(next_title, ignore_path=filepath)
+                os.rename(filepath, new_filepath)
+                title = next_title
+                filepath = new_filepath
+            else:
+                title = next_title
 
-        if data.new_content is not None:
-            self._write_file(filepath, data.new_content, overwrite=True)
-            content = data.new_content
-        else:
-            content = self._read_file(filepath)
-        return Note(
-            title=title,
-            content=content,
-            last_modified=os.path.getmtime(filepath),
-            format=self._format_from_path(filepath),
-        )
+            if data.new_content is not None:
+                content = data.new_content
+                if next_format == "html":
+                    content = (
+                        preserve_publication_metadata(
+                            existing_content, content
+                        )
+                        if existing_format == "html"
+                        else strip_publication_metadata(content)
+                    )
+                self._write_file(filepath, content, overwrite=True)
+            else:
+                content = self._read_file(filepath)
+            return Note(
+                title=title,
+                content=content,
+                last_modified=os.path.getmtime(filepath),
+                format=self._format_from_path(filepath),
+            )
 
     def delete(self, title: str) -> None:
         """Delete a specific note."""
@@ -772,14 +801,18 @@ class FileSystemNotes(BaseNotes):
         content_ex_tags, tags = cls._extract_tags(content)
         headings = [
             NoteHeading(level=len(match.group(1)), text=match.group(2).strip())
-            for match in re.finditer(r"^(#{1,6})\s+(.+)$", content, re.MULTILINE)
+            for match in re.finditer(
+                r"^(#{1,6})\s+(.+)$", content, re.MULTILINE
+            )
         ]
         media = [
             NoteMedia(src=match.group(2), alt=match.group(1) or None)
             for match in re.finditer(r"!\[([^\]]*)\]\(([^)]+)\)", content)
         ]
         links = [
-            NoteLink(href=match.group(2), text=match.group(1) or match.group(2))
+            NoteLink(
+                href=match.group(2), text=match.group(1) or match.group(2)
+            )
             for match in re.finditer(r"(?<!!)\[([^\]]*)\]\(([^)]+)\)", content)
         ]
         sources = [
@@ -809,7 +842,9 @@ class FileSystemNotes(BaseNotes):
         lines = [f"# {context.title}", ""]
         lines.append(f"Note kind: {context.note_kind}")
         if context.tags:
-            lines.append("Tags: " + " ".join(f"#{tag}" for tag in context.tags))
+            lines.append(
+                "Tags: " + " ".join(f"#{tag}" for tag in context.tags)
+            )
         if context.summary:
             lines.extend(["", "Summary:", context.summary])
         if context.headings:
@@ -821,7 +856,8 @@ class FileSystemNotes(BaseNotes):
         if context.media:
             lines.extend(["", "Media:"])
             lines.extend(
-                cls._format_media_for_context(media) for media in context.media[:30]
+                cls._format_media_for_context(media)
+                for media in context.media[:30]
             )
         if context.links:
             lines.extend(["", "Links:"])
@@ -841,7 +877,9 @@ class FileSystemNotes(BaseNotes):
                 for component in context.components
             )
         if context.text:
-            lines.extend(["", "Text:", cls._truncate_text(context.text, 12000)])
+            lines.extend(
+                ["", "Text:", cls._truncate_text(context.text, 12000)]
+            )
         return "\n".join(lines).strip()
 
     @staticmethod
@@ -1070,5 +1108,24 @@ class FileSystemNotes(BaseNotes):
     @staticmethod
     def _write_file(filepath: str, content: str, overwrite: bool = False):
         logger.debug(f"Writing to '{filepath}'")
-        with open(filepath, "w" if overwrite else "x", encoding="utf-8") as f:
-            f.write(content)
+        if not overwrite and os.path.exists(filepath):
+            raise FileExistsError(filepath)
+        directory = os.path.dirname(os.path.abspath(filepath))
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{os.path.basename(filepath)}.",
+            suffix=".tmp",
+            dir=directory,
+        )
+        try:
+            with os.fdopen(
+                descriptor, "w", encoding="utf-8", newline=""
+            ) as file:
+                file.write(content)
+                file.flush()
+                os.fsync(file.fileno())
+            if not overwrite and os.path.exists(filepath):
+                raise FileExistsError(filepath)
+            os.replace(temporary_name, filepath)
+        finally:
+            if os.path.exists(temporary_name):
+                os.unlink(temporary_name)

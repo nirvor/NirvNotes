@@ -16,6 +16,23 @@ class GlobalConfig:
         self.quick_access_limit: int = self._quick_access_limit()
         self.path_prefix: str = self._load_path_prefix()
         self.windows_update_dir: str = self._load_windows_update_dir()
+        self.publish_base_url: str = get_env(
+            "NIRVNOTES_PUBLISH_BASE_URL", mandatory=False, default=""
+        )
+        self.publish_token: str = get_env(
+            "NIRVNOTES_PUBLISH_TOKEN", mandatory=False, default=""
+        )
+        self.public_base_url: str = get_env(
+            "NIRVNOTES_PUBLIC_BASE_URL",
+            mandatory=False,
+            default="https://pages.thuber.org",
+        )
+        self.publish_timeout_seconds: int = get_env(
+            "NIRVNOTES_PUBLISH_TIMEOUT_SECONDS",
+            mandatory=False,
+            default=20,
+            cast_int=True,
+        )
 
     def load_auth(self):
         if self.auth_type in (AuthType.NONE, AuthType.READ_ONLY):

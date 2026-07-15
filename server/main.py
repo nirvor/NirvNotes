@@ -3,7 +3,15 @@ import re
 from pathlib import Path
 from typing import List, Literal
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    UploadFile,
+)
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -23,11 +31,21 @@ from notes.models import (
     NoteUpdate,
     SearchResult,
 )
+from publications.errors import PublicationError
+from publications.models import PublicationStart, PublicationStateResponse
+from publications.service import PublicationService
 
 global_config = GlobalConfig()
 auth: BaseAuth = global_config.load_auth()
 note_storage: BaseNotes = global_config.load_note_storage()
 attachment_storage: BaseAttachments = global_config.load_attachment_storage()
+publication_service = PublicationService(
+    storage_path=note_storage.storage_path,
+    base_url=global_config.publish_base_url,
+    token=global_config.publish_token,
+    public_base_url=global_config.public_base_url,
+    timeout_seconds=global_config.publish_timeout_seconds,
+)
 auth_deps = [Depends(auth.authenticate)] if auth else []
 router = APIRouter()
 app = FastAPI(
@@ -35,6 +53,12 @@ app = FastAPI(
     openapi_url=global_config.path_prefix + "/openapi.json",
 )
 replace_base_href("client/dist/index.html", global_config.path_prefix)
+
+
+@app.on_event("startup")
+def resume_pending_publications():
+    publication_service.resume_pending()
+
 
 HASHED_ASSET_RE = re.compile(
     r"/assets/.+-[A-Za-z0-9_-]{8,}\.(?:css|ico|js|otf|png|svg|ttf|webp|woff2?)$",
@@ -194,6 +218,21 @@ def get_note_context(title: str):
         raise HTTPException(404, api_messages.note_not_found)
 
 
+@router.get(
+    "/api/notes/{title}/publication",
+    dependencies=auth_deps,
+    response_model=PublicationStateResponse,
+)
+def get_note_publication(title: str):
+    """Return authoritative public publication state for a Library note."""
+    try:
+        return publication_service.get_state(title)
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail=api_messages.invalid_note_title
+        )
+
+
 if global_config.auth_type != AuthType.READ_ONLY:
 
     # Create Note
@@ -236,6 +275,36 @@ if global_config.auth_type != AuthType.READ_ONLY:
             )
         except FileNotFoundError:
             raise HTTPException(404, api_messages.note_not_found)
+
+    @router.post(
+        "/api/notes/{title}/publication",
+        dependencies=auth_deps,
+        response_model=PublicationStateResponse,
+        status_code=202,
+    )
+    def publish_note(title: str, data: PublicationStart):
+        """Start or resume an explicit public publication."""
+        try:
+            result = publication_service.start(title, data)
+        except FileNotFoundError:
+            raise HTTPException(404, api_messages.note_not_found)
+        except PublicationError as error:
+            return JSONResponse(
+                status_code=error.status,
+                content=error.problem(),
+                media_type="application/problem+json",
+                headers={"Cache-Control": "no-store"},
+            )
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail=api_messages.invalid_note_title
+            )
+        status_code = 200 if result.state == "current" else 202
+        return JSONResponse(
+            status_code=status_code,
+            content=jsonable_encoder(result, by_alias=True),
+            headers={"Cache-Control": "no-store"},
+        )
 
     # Delete Note
     @router.delete(

@@ -249,6 +249,30 @@ export async function getNoteContext(title) {
   }
 }
 
+export async function getNotePublication(title) {
+  try {
+    const response = await api.get(
+      `api/notes/${encodeURIComponent(title)}/publication`,
+      { headers: { "Cache-Control": "no-cache" } },
+    );
+    return response.data;
+  } catch (response) {
+    return Promise.reject(response);
+  }
+}
+
+export async function publishNote(title, publication) {
+  try {
+    const response = await api.post(
+      `api/notes/${encodeURIComponent(title)}/publication`,
+      publication,
+    );
+    return response.data;
+  } catch (response) {
+    return Promise.reject(response);
+  }
+}
+
 export function getCachedSemanticIndex() {
   if (semanticIndexCache?.data) {
     return semanticIndexCache.data.map((note) => ({ ...note }));

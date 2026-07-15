@@ -378,6 +378,26 @@ class NirvNotesApi:
             logging.exception("could not open a new NirvNotes window")
             return {"started": False, "error": str(exc)}
 
+    def open_external_url(self, url: str) -> dict[str, Any]:
+        try:
+            parsed = parse.urlsplit(str(url or ""))
+        except ValueError:
+            parsed = None
+        if (
+            parsed is None
+            or parsed.scheme.lower() != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+        ):
+            return {"opened": False, "error": "The public URL is invalid."}
+        try:
+            os.startfile(url)
+            return {"opened": True}
+        except OSError as exc:
+            logging.exception("could not open external URL")
+            return {"opened": False, "error": str(exc)}
+
     def has_openable_external_paths(self, paths: list[str]) -> bool:
         return self._file_store.has_openable_path(paths)
 

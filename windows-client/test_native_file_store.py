@@ -5,15 +5,55 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from urllib import error, request
 
 from nirvnotes_client import (
     ALLOWED_EXTENSIONS,
     NativeFileStore,
+    NirvNotesApi,
     start_local_proxy,
     updater_process_creation_flags,
 )
+
+
+class NirvNotesApiTests(unittest.TestCase):
+    def test_external_public_url_opens_in_system_browser(self) -> None:
+        store = NativeFileStore()
+        try:
+            api = NirvNotesApi(
+                store,
+                [],
+                "https://notes.example",
+                "https://notes.example",
+            )
+            with patch("nirvnotes_client.os.startfile") as startfile:
+                result = api.open_external_url(
+                    "https://pages.thuber.org/example/"
+                )
+            self.assertTrue(result["opened"])
+            startfile.assert_called_once_with(
+                "https://pages.thuber.org/example/"
+            )
+        finally:
+            store.close()
+
+    def test_external_url_rejects_non_https(self) -> None:
+        store = NativeFileStore()
+        try:
+            api = NirvNotesApi(
+                store,
+                [],
+                "https://notes.example",
+                "https://notes.example",
+            )
+            with patch("nirvnotes_client.os.startfile") as startfile:
+                result = api.open_external_url("file:///C:/private.txt")
+            self.assertFalse(result["opened"])
+            startfile.assert_not_called()
+        finally:
+            store.close()
 
 
 class NativeFileStoreTests(unittest.TestCase):
