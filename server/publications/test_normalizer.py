@@ -139,6 +139,21 @@ class PublicProjectionTests(unittest.TestCase):
                 )
             self.assertEqual(css.exception.code, "unsafe_public_content")
 
+    def test_nested_content_in_removed_container_does_not_break_projection(self):
+        content = """<html><body><article>
+          <h1>Legacy note</h1>
+          <template><section><p>Internal source</p></section></template>
+          <p>Safe rendered result.</p>
+        </article></body></html>"""
+
+        with tempfile.TemporaryDirectory() as directory:
+            projection = PublicProjectionBuilder(directory).build(
+                "Legacy note", content
+            )
+
+        self.assertIn("Safe rendered result.", projection.public_html)
+        self.assertNotIn("Internal source", projection.public_html)
+
 
 if __name__ == "__main__":
     unittest.main()

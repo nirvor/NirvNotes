@@ -335,6 +335,10 @@ class PublicProjectionBuilder:
         ):
             comment.extract()
         for tag in list(soup.find_all(True)):
+            # Decomposing a parent also clears attrs/name on descendants that
+            # are still present in the snapshot returned by find_all().
+            if tag.name is None or tag.attrs is None:
+                continue
             name = tag.name.lower()
             if (
                 name == "input"
